@@ -48,7 +48,7 @@ else:
     from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
     _COLAB = False
 
-_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+_SCOPES = ["https://www.googleapis.com/auth/drive"]
 _SERVICE: Any = None
 
 
@@ -151,7 +151,8 @@ def get_or_create_folder(name: str, parent_id: str | None = None) -> str:
 
         results = (
             service.files()
-            .list(q=query, fields="files(id, name)", pageSize=5)
+            .list(q=query, fields="files(id, name, createdTime)",
+                  orderBy="createdTime", pageSize=5)
             .execute()
         )
         items = results.get("files", [])
