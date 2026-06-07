@@ -233,13 +233,22 @@ def _handle_podcast_job(file_info: dict) -> None:
 # Filesystem-based handlers (Drive mounted — no API cache lag)
 # ═══════════════════════════════════════════════════════════════════
 
+def _write_status_fs(job_id: str, status: dict) -> None:
+    """Write status.json directly to mounted Drive filesystem."""
+    import json as _json
+    out_dir = f"/content/drive/MyDrive/ece22073/output/{job_id}"
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "status.json"), "w") as f:
+        _json.dump(status, f)
+
+
 def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
     """Process a WAV file directly from the mounted Drive filesystem."""
     job_id = filename.replace(".wav", "") if filename.endswith(".wav") else db.generate_job_id()
     logger.info("🎙️ ASR job %s — starting for %s", job_id, filename)
 
     try:
-        db.write_status(job_id, _make_status(job_id, "asr", "asr", progress_pct=0.05, eta_seconds=600))
+        _write_status_fs(job_id, _make_status(job_id, "asr", "asr", progress_pct=0.05, eta_seconds=600))
 
         import threading, asyncio as _asyncio
         result_holder: dict[str, Any] = {}
@@ -255,12 +264,13 @@ def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
         t.join()
         success = result_holder.get("success", False)
 
-        db.write_status(job_id, _make_status(job_id, "asr", "normalization", progress_pct=0.8, eta_seconds=60))
+        _write_status_fs(job_id, _make_status(job_id, "asr", "normalization", progress_pct=0.8, eta_seconds=60))
 
-        # Upload results to Drive output/{job_id}/
+        # Copy results directly via mounted Drive filesystem (no API needed)
+        import shutil
         results_dir = Path(__file__).parent / "results"
-        job_output = f"{config.DRIVE_OUTPUT}/{job_id}"
-        db.get_or_create_folder(job_output)
+        job_output_fs = f"/content/drive/MyDrive/ece22073/output/{job_id}"
+        os.makedirs(job_output_fs, exist_ok=True)
 
         for result_file in ("transcript.json", "transcript.txt",
                             "normalized_transcript.txt", "summary_outputs.json",
@@ -268,10 +278,11 @@ def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
                             "normalized_diarized_transcript.txt", "normalized_transcript_flat.txt"):
             rp = results_dir / result_file
             if rp.exists():
-                db.upload_file(str(rp), job_output)
+                shutil.copy2(str(rp), os.path.join(job_output_fs, result_file))
+                logger.info("  Copied %s → Drive", result_file)
 
         state = "done" if success else "error"
-        db.write_status(job_id, _make_status(job_id, "asr", state, progress_pct=1.0, eta_seconds=0,
+        _write_status_fs(job_id, _make_status(job_id, "asr", state, progress_pct=1.0, eta_seconds=0,
                                               error=None if success else "Pipeline returned False"))
 
         # Archive: move WAV to input/processed/
