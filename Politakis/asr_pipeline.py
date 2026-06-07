@@ -27,8 +27,13 @@ logging.basicConfig(
 )
 
 WHISPER_MODEL_SIZE: str = "turbo"
-WHISPER_DEVICE: str = "auto"
-WHISPER_COMPUTE_TYPE: str = "int8"
+
+if torch.cuda.is_available():
+    WHISPER_DEVICE: str = "cuda"
+    WHISPER_COMPUTE_TYPE: str = "float16"
+else:
+    WHISPER_DEVICE: str = "cpu"
+    WHISPER_COMPUTE_TYPE: str = "int8"
 
 MIN_CONFIDENCE_PROB: float = 0.40
 MAX_NO_SPEECH_PROB: float = 0.80
@@ -42,13 +47,24 @@ _diarization_available: bool | None = None
 
 
 def _get_whisper() -> WhisperModel:
-    global _whisper_model
-    if _whisper_model is None:
-        logger.info("Loading faster-whisper '%s' (device=%s, compute=%s)…",
-                     WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE)
+    global _whisper_model, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
+    if _whisper_model is not None:
+        return _whisper_model
+    logger.info("Loading faster-whisper '%s' (device=%s, compute=%s)…",
+                 WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE)
+    try:
         _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device=WHISPER_DEVICE,
                                        compute_type=WHISPER_COMPUTE_TYPE)
-        logger.info("Whisper model loaded.")
+    except RuntimeError:
+        if WHISPER_DEVICE == "cuda":
+            logger.warning("CUDA init failed, falling back to CPU…")
+            WHISPER_DEVICE = "cpu"
+            WHISPER_COMPUTE_TYPE = "int8"
+            _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu",
+                                           compute_type="int8")
+        else:
+            raise
+    logger.info("Whisper model loaded.")
     return _whisper_model
 
 
