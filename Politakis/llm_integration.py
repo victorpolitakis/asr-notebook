@@ -592,17 +592,13 @@ def process_asr_stream_sync(
     Returns:
         dict matching SCHEMA 2.
     """
-    # If already inside an event loop (Colab/IPython), use it directly.
-    # Otherwise asyncio.run() creates a fresh one.
-    import nest_asyncio; nest_asyncio.apply()
     try:
         loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(
+        return loop.run_until_complete(
             process_asr_stream(asr_chunks, source_file=source_file)
         )
-    else:
-        return loop.run_until_complete(
+    except RuntimeError:
+        return asyncio.run(
             process_asr_stream(asr_chunks, source_file=source_file)
         )
         )

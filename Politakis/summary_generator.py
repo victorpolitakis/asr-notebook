@@ -533,15 +533,13 @@ def generate_summary(
     Returns:
         SummaryOutputs dict.
     """
-    import nest_asyncio; nest_asyncio.apply()
     try:
         loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(generate_summary_async(transcript, entities))
-    else:
         return loop.run_until_complete(
             generate_summary_async(transcript, entities)
         )
+    except RuntimeError:
+        return asyncio.run(generate_summary_async(transcript, entities))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
