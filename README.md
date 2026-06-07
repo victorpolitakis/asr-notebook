@@ -2,7 +2,7 @@
 
 AI-powered pipeline: ASR transcription → speaker diarization → NER → multi-tier summarization → podcast generation.
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/victoras136/ece22073-podcast/blob/main/notebook.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/victoras136/asr-notebook/blob/main/notebook.ipynb)
 
 ## Architecture
 
