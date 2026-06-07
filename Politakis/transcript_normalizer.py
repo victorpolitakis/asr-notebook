@@ -11,6 +11,7 @@ import difflib
 import logging
 import os
 import re
+from pathlib import Path
 
 from openai import OpenAI
 
@@ -292,6 +293,21 @@ def _validate_normalization(raw: str, normalized: str) -> bool:
                 raw_paras, norm_paras, para_ratio,
             )
             return False
+
+    # Check 5: line (newline) count preservation
+    # Each newline marks a speaker turn — must be preserved exactly for
+    # downstream diarization and podcast script generation. If the LLM
+    # merged or split lines, fall back to raw text with a loud warning.
+    raw_lines = len(raw.splitlines())
+    norm_lines = len(normalized.splitlines())
+    if raw_lines > 0 and raw_lines != norm_lines:
+        logger.warning(
+            "Normalization changed line count — falling back to raw text. "
+            "raw=%d lines, norm=%d lines. LLM restructured the transcript "
+            "and would break speaker-turn alignment.",
+            raw_lines, norm_lines,
+        )
+        return False
 
     return True
 

@@ -205,7 +205,17 @@ def run_pipeline(audio_path: str) -> bool:
 
     logger.info("Raw transcript saved: %d bytes", raw_path.stat().st_size)
     logger.info("Normalized transcript saved: %d bytes", norm_path.stat().st_size if norm_path.exists() else 0)
-    
+
+    # ── Produce diarized transcript (speaker-prefixed, one turn/line) ──
+    try:
+        import diarize_transcript as dt
+        dt.diarize_transcript()
+        # Produce flat version for WER evaluation
+        import strip_newlines as sn
+        sn.strip_for_wer()
+    except Exception as e:
+        logger.warning("Diarized transcript generation failed (non-fatal): %s", e)
+
     logger.info("=" * 60)
     logger.info("PIPELINE RUN SUMMARY")
     logger.info("=" * 60)

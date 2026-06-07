@@ -24,6 +24,13 @@ psutil>=5.9.0
 # ── UI ───────────────────────────────────────────────────────
 streamlit>=1.35.0
 pandas>=2.0.0
+streamlit-autorefresh>=1.0.0
+plotly>=5.0.0
+
+# ── Google Drive Bridge (local) ──────────────────────────────
+google-auth>=2.0.0
+google-auth-oauthlib>=1.2.0
+google-api-python-client>=2.0.0
 
 # ── Notebooks ────────────────────────────────────────────────
 jupyter>=1.0.0

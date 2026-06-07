@@ -54,9 +54,17 @@ def run_real_evaluation() -> bool:
         transcript_data = json.load(f)
 
     # 2. Extract hypothesis data
-    asr_hypothesis = transcript_data.get("raw_full_text", transcript_data.get("full_text", ""))
-    # Strip speaker prefixes like "[Speaker A]: " for clean WER evaluation
-    asr_hypothesis = re.sub(r'\[Speaker [A-Z]\]:\s*', '', asr_hypothesis)
+    # Use the flat normalized transcript (produced by strip_newlines.py) for WER
+    # This is cleaner than regex-stripping speaker labels here.
+    flat_path = results_dir / "normalized_transcript_flat.txt"
+    if flat_path.exists():
+        asr_hypothesis = flat_path.read_text(encoding="utf-8").strip()
+        logger.info("Using normalized flat transcript for WER: %s", flat_path)
+    else:
+        # Fallback — should not happen in normal flow
+        asr_hypothesis = transcript_data.get("raw_full_text", transcript_data.get("full_text", ""))
+        asr_hypothesis = re.sub(r'Speaker [A-Z]:\s*', '', asr_hypothesis)
+        logger.warning("normalized_transcript_flat.txt not found — fallback to raw text")
     summary_hypothesis = summary_data.get("summaries", {}).get("executive", "")
     extracted_topics = [kw.get("name", "") for kw in summary_data.get("entities", {}).get("keywords", [])]
     detected_languages = transcript_data.get("languages_detected", ["en"])
