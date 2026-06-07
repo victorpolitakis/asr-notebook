@@ -11,9 +11,6 @@ summary outputs to the results/ directory.
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-import nest_asyncio
-nest_asyncio.apply()
-
 import json
 import logging
 import os

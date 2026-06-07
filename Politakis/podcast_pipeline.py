@@ -150,19 +150,10 @@ def _generate_script(job_config: dict) -> str:
 
     logger.info("Generating podcast script: ~%d words, tone=%s", duration_words, tone)
 
-    try:
-        loop = asyncio.get_running_loop()
-        raw = loop.run_until_complete(
-            llm_integration._call_llm(
-                system_prompt=prompt,
-                user_content="Generate the dialogue script.",
-            )
-        )
-    except RuntimeError:
-        raw = asyncio.run(llm_integration._call_llm(
-            system_prompt=prompt,
-            user_content="Generate the dialogue script.",
-        ))
+    raw = asyncio.run(llm_integration._call_llm(
+        system_prompt=prompt,
+        user_content="Generate the dialogue script.",
+    ))
 
     script = raw.strip() if raw else ""
     if not script:

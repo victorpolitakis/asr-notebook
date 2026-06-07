@@ -17,9 +17,6 @@ zero manual cleanup needed.
 
 from __future__ import annotations
 
-import nest_asyncio
-nest_asyncio.apply()
-
 import importlib
 import json
 import logging
@@ -93,11 +90,20 @@ def _handle_asr_job(file_info: dict) -> None:
             _make_status(job_id, "asr", "asr", progress_pct=0.2, eta_seconds=500),
         )
 
-        # Run the pipeline
-        sys.path.insert(0, str(Path(__file__).parent.resolve()))
-        import run_pipeline
-
-        success = run_pipeline.run_pipeline(tmp_path)
+        # Run the pipeline in a separate thread with its own event loop.
+        # This isolates it from Colab's IPython event loop — no nesting.
+        import threading
+        import asyncio as _asyncio
+        result_holder: dict[str, Any] = {}
+        def _run_isolated() -> None:
+            loop = _asyncio.new_event_loop()
+            _asyncio.set_event_loop(loop)
+            import run_pipeline
+            result_holder["success"] = run_pipeline.run_pipeline(tmp_path)
+        t = threading.Thread(target=_run_isolated)
+        t.start()
+        t.join()
+        success = result_holder.get("success", False)
 
         db.write_status(
             job_id,

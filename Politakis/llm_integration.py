@@ -592,13 +592,7 @@ def process_asr_stream_sync(
     Returns:
         dict matching SCHEMA 2.
     """
-    try:
-        loop = asyncio.get_running_loop()
-        return loop.run_until_complete(
-            process_asr_stream(asr_chunks, source_file=source_file)
-        )
-    except RuntimeError:
-        return asyncio.run(
-            process_asr_stream(asr_chunks, source_file=source_file)
-        )
+    return asyncio.run(
+        process_asr_stream(asr_chunks, source_file=source_file)
+    )
         )
