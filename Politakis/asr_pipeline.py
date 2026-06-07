@@ -28,7 +28,16 @@ logging.basicConfig(
 
 WHISPER_MODEL_SIZE: str = "turbo"
 
-if torch.cuda.is_available():
+# CTranslate2+CUDA on Colab T4 produces "cudaErrorInvalidDevice" during
+# inference (not model load). Detect Colab → force CPU. Locally use auto.
+def _is_colab() -> bool:
+    try:
+        import google.colab
+        return True
+    except ImportError:
+        return False
+
+if torch.cuda.is_available() and not _is_colab():
     WHISPER_DEVICE: str = "cuda"
     WHISPER_COMPUTE_TYPE: str = "float16"
 else:
