@@ -595,4 +595,3 @@ def process_asr_stream_sync(
     return asyncio.run(
         process_asr_stream(asr_chunks, source_file=source_file)
     )
-        )
