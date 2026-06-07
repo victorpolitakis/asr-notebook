@@ -341,33 +341,25 @@ def main_loop() -> None:
 
     processed_names: set[str] = set()  # Dedupe by filename across restarts
 
-    # Filesystem paths (Drive is mounted in Colab — faster + no API cache lag)
-    fs_input = "/content/drive/MyDrive/ece22073/input"
-    fs_jobs  = "/content/drive/MyDrive/ece22073/input/podcast_jobs"
-
     while True:
         try:
-            # ── Check for ASR jobs (WAV files in input/) ──
-            if os.path.isdir(fs_input):
-                for fname in os.listdir(fs_input):
-                    if not fname.lower().endswith(".wav"):
-                        continue
-                    if fname in processed_names:
-                        continue
-                    processed_names.add(fname)
-                    fpath = os.path.join(fs_input, fname)
-                    _handle_asr_job_fs(fpath, fname)
+            # ── Check for ASR jobs (WAV files in input/) via Drive API ──
+            for file_info in db.find_new_input_files():
+                fname = file_info["name"]
+                if not fname.lower().endswith(".wav"):
+                    continue
+                if fname in processed_names:
+                    continue
+                processed_names.add(fname)
+                _handle_asr_job(file_info)
 
-            # ── Check for podcast jobs (JSON in input/podcast_jobs/) ──
-            if os.path.isdir(fs_jobs):
-                for fname in os.listdir(fs_jobs):
-                    if not fname.endswith(".json"):
-                        continue
-                    if fname in processed_names:
-                        continue
-                    processed_names.add(fname)
-                    fpath = os.path.join(fs_jobs, fname)
-                    _handle_podcast_job_fs(fpath, fname)
+            # ── Check for podcast jobs (JSON in input/podcast_jobs/) via Drive API ──
+            for file_info in db.find_new_podcast_jobs():
+                fname = file_info["name"]
+                if fname in processed_names:
+                    continue
+                processed_names.add(fname)
+                _handle_podcast_job(file_info)
 
         except Exception as e:
             logger.error("Watcher loop exception: %s", e, exc_info=True)
