@@ -72,7 +72,8 @@ def _handle_asr_job(file_info: dict) -> None:
     """Download a WAV from Drive, run the pipeline, upload results."""
     file_id = file_info["id"]
     filename = file_info["name"]
-    job_id = db.generate_job_id()
+    # Derive job_id from filename (Streamlit uploads as {job_id}.wav)
+    job_id = filename.replace(".wav", "") if filename.endswith(".wav") else db.generate_job_id()
     logger.info("🎙️ ASR job %s — starting for %s", job_id, filename)
 
     try:

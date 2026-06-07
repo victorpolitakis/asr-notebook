@@ -228,7 +228,8 @@ def _page_upload() -> None:
     with col1:
         uploaded = st.file_uploader("Choose a WAV file", type=["wav"], key="wav_uploader")
 
-        if uploaded and st.button("🚀 Transcribe", type="primary"):
+        _cur_state = st.session_state.get("pipeline_state", "idle")
+        if uploaded and _cur_state in ("idle", "done", "error") and st.button("🚀 Transcribe", type="primary"):
             if not st.session_state.get("drive_connected"):
                 st.error("Drive not connected. Check credentials.json in Politakis/")
                 return
@@ -243,7 +244,7 @@ def _page_upload() -> None:
                 tmp.write(uploaded.read())
                 tmp_path = tmp.name
             try:
-                db.upload_file(tmp_path, config.DRIVE_INPUT)
+                db.upload_file(tmp_path, config.DRIVE_INPUT, filename=f"{job_id}.wav")
                 os.unlink(tmp_path)
                 st.session_state["pipeline_state"] = "processing"
                 st.success(f"Job `{job_id}` submitted. Processing on Colab...")
