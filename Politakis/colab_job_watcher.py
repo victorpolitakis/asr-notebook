@@ -17,6 +17,9 @@ zero manual cleanup needed.
 
 from __future__ import annotations
 
+import nest_asyncio
+nest_asyncio.apply()
+
 import importlib
 import json
 import logging
