@@ -340,8 +340,8 @@ def read_status(job_id: str) -> config.StatusDict | None:
         for f in files:
             if f["name"] == "status.json":
                 return read_json(f["id"])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("read_status(%s) failed: %s", job_id, e, exc_info=True)
     return None
 
 

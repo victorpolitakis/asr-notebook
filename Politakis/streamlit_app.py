@@ -264,8 +264,15 @@ def _page_upload() -> None:
                 else:
                     st.caption("⏳ Status will appear once Colab starts processing...")
                     st.caption("Open the Colab notebook and run cells 1-4 to begin.")
-            except Exception:
-                st.caption("⏳ Awaiting Colab...")
+                    # Debug: show raw folder contents
+                    with st.expander("🔍 Debug: Drive folder contents"):
+                        try:
+                            files = db.list_files(f"{config.DRIVE_OUTPUT}/{job_id}")
+                            st.write(f"Files found in output/{job_id}:", files)
+                        except Exception as e:
+                            st.error(f"list_files error: {e}")
+            except Exception as e:
+                st.caption(f"⏳ Awaiting Colab... (error: {e})")
 
     # Show results when done
     state = st.session_state.get("pipeline_state")
@@ -280,17 +287,37 @@ def _page_upload() -> None:
             langs = transcript.get("languages_detected", [])
             total_dur = transcript.get("total_duration_sec", 0)
 
+            # Collect all segments across all VAD chunks
+            all_segments = []
+            for chunk in chunks:
+                segs = chunk.get("segments", [])
+                if segs:
+                    for seg in segs:
+                        all_segments.append({
+                            "speaker": seg.get("speaker", "Speaker A"),
+                            "text": seg.get("text", ""),
+                            "start": seg.get("start", chunk.get("start_time_sec", 0)),
+                        })
+                elif chunk.get("full_text", "").strip():
+                    # Fallback: no segments, use chunk full_text
+                    all_segments.append({
+                        "speaker": "Speaker A",
+                        "text": chunk.get("full_text", ""),
+                        "start": chunk.get("start_time_sec", 0),
+                    })
+
+            all_speakers = set(s["speaker"] for s in all_segments) or {"Speaker A"}
+
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Chunks", len(chunks))
+            m1.metric("Segments", len(all_segments))
             m2.metric("Duration", f"{total_dur:.0f}s")
             m3.metric("Languages", ", ".join(langs) if langs else "en")
-            m4.metric("Speakers", len(set(c.get("speaker", "A") for c in chunks)))
+            m4.metric("Speakers", len(all_speakers))
 
-            for chunk in chunks:
-                speaker = chunk.get("speaker", "Speaker A")
-                text = chunk.get("text", "")
-                ts = f"[{chunk.get('start', 0):.1f}s]"
-                st.markdown(f"**{speaker}** {ts}: {text}")
+            for seg in all_segments:
+                if seg["text"].strip():
+                    ts = f"[{seg['start']:.1f}s]"
+                    st.markdown(f"**{seg['speaker']}** {ts}: {seg['text']}")
 
         summary_data = results.get("summary_outputs", {})
         if summary_data:
@@ -329,10 +356,13 @@ def _page_notebook() -> None:
     with col_left:
         st.subheader("📄 Transcript")
         for chunk in transcript.get("chunks", []):
-            speaker = chunk.get("speaker", "Speaker A")
-            text = chunk.get("text", "")
-            ts = f"`[{chunk.get('start', 0):.1f}s]`"
-            st.markdown(f"**{speaker}** {ts}: {text}")
+            for seg in chunk.get("segments", []):
+                text = seg.get("text", "").strip()
+                if not text:
+                    continue
+                speaker = seg.get("speaker", "Speaker A")
+                ts = f"`[{seg.get('start', chunk.get('start_time_sec', 0)):.1f}s]`"
+                st.markdown(f"**{speaker}** {ts}: {text}")
 
         entities = summary_data.get("entities", {}) if summary_data else {}
         if entities:
