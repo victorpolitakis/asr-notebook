@@ -28,18 +28,12 @@ logging.basicConfig(
 
 WHISPER_MODEL_SIZE: str = "turbo"
 
-# CTranslate2+CUDA on Colab T4 produces "cudaErrorInvalidDevice" during
-# inference (not model load). Detect Colab → force CPU. Locally use auto.
-def _is_colab() -> bool:
-    try:
-        import google.colab
-        return True
-    except ImportError:
-        return False
-
-if torch.cuda.is_available() and not _is_colab():
+if torch.cuda.is_available():
     WHISPER_DEVICE: str = "cuda"
     WHISPER_COMPUTE_TYPE: str = "float16"
+    # Fix ctranslate2 "cudaErrorInvalidDevice" on Colab T4
+    import os as _os
+    _os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 else:
     WHISPER_DEVICE: str = "cpu"
     WHISPER_COMPUTE_TYPE: str = "int8"
@@ -63,6 +57,7 @@ def _get_whisper() -> WhisperModel:
                  WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE)
     try:
         _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device=WHISPER_DEVICE,
+                                       device_index=[0], num_workers=1,
                                        compute_type=WHISPER_COMPUTE_TYPE)
     except RuntimeError:
         if WHISPER_DEVICE == "cuda":
@@ -70,6 +65,7 @@ def _get_whisper() -> WhisperModel:
             WHISPER_DEVICE = "cpu"
             WHISPER_COMPUTE_TYPE = "int8"
             _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu",
+                                           device_index=[0], num_workers=1,
                                            compute_type="int8")
         else:
             raise
