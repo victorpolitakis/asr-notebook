@@ -230,6 +230,102 @@ def _handle_podcast_job(file_info: dict) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Filesystem-based handlers (Drive mounted — no API cache lag)
+# ═══════════════════════════════════════════════════════════════════
+
+def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
+    """Process a WAV file directly from the mounted Drive filesystem."""
+    job_id = filename.replace(".wav", "") if filename.endswith(".wav") else db.generate_job_id()
+    logger.info("🎙️ ASR job %s — starting for %s", job_id, filename)
+
+    try:
+        db.write_status(job_id, _make_status(job_id, "asr", "asr", progress_pct=0.05, eta_seconds=600))
+
+        import threading, asyncio as _asyncio
+        result_holder: dict[str, Any] = {}
+
+        def _run_isolated() -> None:
+            loop = _asyncio.new_event_loop()
+            _asyncio.set_event_loop(loop)
+            import run_pipeline
+            result_holder["success"] = run_pipeline.run_pipeline(wav_path)
+
+        t = threading.Thread(target=_run_isolated)
+        t.start()
+        t.join()
+        success = result_holder.get("success", False)
+
+        db.write_status(job_id, _make_status(job_id, "asr", "normalization", progress_pct=0.8, eta_seconds=60))
+
+        # Upload results to Drive output/{job_id}/
+        results_dir = Path(__file__).parent / "results"
+        job_output = f"{config.DRIVE_OUTPUT}/{job_id}"
+        db.get_or_create_folder(job_output)
+
+        for result_file in ("transcript.json", "transcript.txt",
+                            "normalized_transcript.txt", "summary_outputs.json",
+                            "quality_metrics.json", "processing_time_analysis.json",
+                            "normalized_diarized_transcript.txt", "normalized_transcript_flat.txt"):
+            rp = results_dir / result_file
+            if rp.exists():
+                db.upload_file(str(rp), job_output)
+
+        state = "done" if success else "error"
+        db.write_status(job_id, _make_status(job_id, "asr", state, progress_pct=1.0, eta_seconds=0,
+                                              error=None if success else "Pipeline returned False"))
+
+        # Archive: move WAV to input/processed/
+        processed_dir = os.path.dirname(wav_path) + "/processed"
+        os.makedirs(processed_dir, exist_ok=True)
+        os.rename(wav_path, os.path.join(processed_dir, filename))
+        logger.info("✅ ASR job %s — %s", job_id, state)
+
+    except Exception as e:
+        logger.error("❌ ASR job %s failed: %s", job_id, e, exc_info=True)
+        db.write_status(job_id, _make_status(job_id, "asr", "error", progress_pct=0.0, eta_seconds=0,
+                                              error=str(e)[:500]))
+        # Leave WAV in place for retry on cold restart
+
+
+def _handle_podcast_job_fs(json_path: str, filename: str) -> None:
+    """Process a podcast job JSON from the mounted Drive filesystem."""
+    job_id = filename.replace(".json", "")
+    logger.info("🎙️ Podcast job %s — starting", job_id)
+
+    try:
+        import json as _json
+        with open(json_path) as f:
+            job_config = _json.load(f)
+
+        db.write_status(job_id, _make_status(job_id, "podcast", "podcast_script", progress_pct=0.05, eta_seconds=300))
+
+        try:
+            import podcast_pipeline as pp
+        except ImportError as e:
+            logger.warning("podcast_pipeline not available: %s", e)
+            db.write_status(job_id, _make_status(job_id, "podcast", "error", progress_pct=0.0, eta_seconds=0,
+                                                  error=f"podcast_pipeline import failed: {e}"))
+            return
+
+        result = pp.generate_podcast(job_config)
+
+        if result and result.get("mp3_path"):
+            db.upload_file(result["mp3_path"], config.DRIVE_OUTPUT_PODCASTS, filename=f"{job_id}.mp3")
+
+        db.write_status(job_id, _make_status(job_id, "podcast", "done", progress_pct=1.0, eta_seconds=0))
+
+        processed_dir = os.path.dirname(json_path) + "/processed"
+        os.makedirs(processed_dir, exist_ok=True)
+        os.rename(json_path, os.path.join(processed_dir, filename))
+        logger.info("✅ Podcast job %s — done", job_id)
+
+    except Exception as e:
+        logger.error("❌ Podcast job %s failed: %s", job_id, e, exc_info=True)
+        db.write_status(job_id, _make_status(job_id, "podcast", "error", progress_pct=0.0, eta_seconds=0,
+                                              error=str(e)[:500]))
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Main loop
 # ═══════════════════════════════════════════════════════════════════
 
@@ -245,24 +341,35 @@ def main_loop() -> None:
     logger.info("   Drive folders initialized")
     logger.info("   Watching: %s + %s", config.DRIVE_INPUT, config.DRIVE_INPUT_JOBS)
 
-    processed_ids: set[str] = set()  # Dedupe across restarts
+    processed_names: set[str] = set()  # Dedupe by filename across restarts
+
+    # Filesystem paths (Drive is mounted in Colab — faster + no API cache lag)
+    fs_input = "/content/drive/MyDrive/ece22073/input"
+    fs_jobs  = "/content/drive/MyDrive/ece22073/input/podcast_jobs"
 
     while True:
         try:
             # ── Check for ASR jobs (WAV files in input/) ──
-            for f in db.find_new_input_files():
-                if f["id"] in processed_ids:
-                    continue
-                if f["name"].lower().endswith(".wav"):
-                    processed_ids.add(f["id"])
-                    _handle_asr_job(f)
+            if os.path.isdir(fs_input):
+                for fname in os.listdir(fs_input):
+                    if not fname.lower().endswith(".wav"):
+                        continue
+                    if fname in processed_names:
+                        continue
+                    processed_names.add(fname)
+                    fpath = os.path.join(fs_input, fname)
+                    _handle_asr_job_fs(fpath, fname)
 
             # ── Check for podcast jobs (JSON in input/podcast_jobs/) ──
-            for f in db.find_new_podcast_jobs():
-                if f["id"] in processed_ids:
-                    continue
-                processed_ids.add(f["id"])
-                _handle_podcast_job(f)
+            if os.path.isdir(fs_jobs):
+                for fname in os.listdir(fs_jobs):
+                    if not fname.endswith(".json"):
+                        continue
+                    if fname in processed_names:
+                        continue
+                    processed_names.add(fname)
+                    fpath = os.path.join(fs_jobs, fname)
+                    _handle_podcast_job_fs(fpath, fname)
 
         except Exception as e:
             logger.error("Watcher loop exception: %s", e, exc_info=True)
