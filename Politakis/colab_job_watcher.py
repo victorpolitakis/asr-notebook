@@ -250,19 +250,8 @@ def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
     try:
         _write_status_fs(job_id, _make_status(job_id, "asr", "asr", progress_pct=0.05, eta_seconds=600))
 
-        import threading, asyncio as _asyncio
-        result_holder: dict[str, Any] = {}
-
-        def _run_isolated() -> None:
-            loop = _asyncio.new_event_loop()
-            _asyncio.set_event_loop(loop)
-            import run_pipeline
-            result_holder["success"] = run_pipeline.run_pipeline(wav_path)
-
-        t = threading.Thread(target=_run_isolated)
-        t.start()
-        t.join()
-        success = result_holder.get("success", False)
+        import run_pipeline
+        success = run_pipeline.run_pipeline(wav_path)
 
         _write_status_fs(job_id, _make_status(job_id, "asr", "normalization", progress_pct=0.8, eta_seconds=60))
 
