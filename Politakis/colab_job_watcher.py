@@ -248,18 +248,16 @@ def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
     logger.info("🎙️ ASR job %s — starting for %s", job_id, filename)
 
     try:
-        _write_status_fs(job_id, _make_status(job_id, "asr", "asr", progress_pct=0.05, eta_seconds=600))
+        db.write_status(job_id, _make_status(job_id, "asr", "asr", progress_pct=0.05, eta_seconds=600))
 
         import run_pipeline
         success = run_pipeline.run_pipeline(wav_path)
 
-        _write_status_fs(job_id, _make_status(job_id, "asr", "normalization", progress_pct=0.8, eta_seconds=60))
+        db.write_status(job_id, _make_status(job_id, "asr", "normalization", progress_pct=0.8, eta_seconds=60))
 
-        # Copy results directly via mounted Drive filesystem (no API needed)
-        import shutil
+        # Upload results via Drive API (same folder db.write_status created)
         results_dir = Path(__file__).parent / "results"
-        job_output_fs = f"/content/drive/MyDrive/ece22073/output/{job_id}"
-        os.makedirs(job_output_fs, exist_ok=True)
+        job_output = f"{config.DRIVE_OUTPUT}/{job_id}"
 
         for result_file in ("transcript.json", "transcript.txt",
                             "normalized_transcript.txt", "summary_outputs.json",
@@ -267,12 +265,12 @@ def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
                             "normalized_diarized_transcript.txt", "normalized_transcript_flat.txt"):
             rp = results_dir / result_file
             if rp.exists():
-                shutil.copy2(str(rp), os.path.join(job_output_fs, result_file))
-                logger.info("  Copied %s → Drive", result_file)
+                db.upload_file(str(rp), job_output)
+                logger.info("  Uploaded %s → Drive", result_file)
 
         state = "done" if success else "error"
-        _write_status_fs(job_id, _make_status(job_id, "asr", state, progress_pct=1.0, eta_seconds=0,
-                                              error=None if success else "Pipeline returned False"))
+        db.write_status(job_id, _make_status(job_id, "asr", state, progress_pct=1.0, eta_seconds=0,
+                                             error=None if success else "Pipeline returned False"))
 
         # Archive: move WAV to input/processed/
         processed_dir = os.path.dirname(wav_path) + "/processed"
