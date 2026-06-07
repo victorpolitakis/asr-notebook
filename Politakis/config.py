@@ -29,7 +29,7 @@ DRIVE_MODELS_CACHE: str = f"{DRIVE_ROOT}/models"
 # ═══════════════════════════════════════════════════════════════════
 
 POLL_INTERVAL_SEC: int = 10       # Colab watcher loop
-LOCAL_POLL_INTERVAL_SEC: int = 5  # Streamlit refresh
+LOCAL_POLL_INTERVAL_SEC: int = 15  # Streamlit refresh
 STALL_TIMEOUT_SEC: int = 600      # 10 min — no status update → stalled
 
 # ═══════════════════════════════════════════════════════════════════

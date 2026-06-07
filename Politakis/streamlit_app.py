@@ -40,11 +40,17 @@ st.set_page_config(
 )
 
 # ═══════════════════════════════════════════════════════════════
-# Auto-refresh for polling
+# Auto-refresh for polling (ONLY when a job is actively processing)
 # ═══════════════════════════════════════════════════════════════
-# IMPORTANT: interval is in MILLISECONDS, not seconds.
-# 5000ms = 5 seconds. Without the *1000 the app refreshes every 5ms.
-st_autorefresh(interval=config.LOCAL_POLL_INTERVAL_SEC * 1000, key="poll_timer")
+# When idle/done/error: interval is huge (~11 days) → effectively no refresh.
+# When processing: interval = LOCAL_POLL_INTERVAL_SEC seconds.
+# This eliminates the "gray screen flicker" from perpetual re-execution.
+_active_state = st.session_state.get("pipeline_state", "idle")
+_active_job = st.session_state.get("active_job_id")
+_refresh_ms = config.LOCAL_POLL_INTERVAL_SEC * 1000
+if _active_state in ("idle", "done", "error", "stalled") or not _active_job:
+    _refresh_ms = 999_999_999  # effectively disable
+st_autorefresh(interval=_refresh_ms, key="poll_timer")
 
 # ═══════════════════════════════════════════════════════════════
 # Session state defaults
@@ -69,31 +75,39 @@ for _key, _val in _DEFAULTS.items():
 
 
 # ═══════════════════════════════════════════════════════════════
-# Drive connection (called once per render cycle)
+# Drive connection (one-time init via session_state)
 # ═══════════════════════════════════════════════════════════════
+# authenticate() opens a browser when there is no cached token — which
+# blocks and gets cancelled by st_autorefresh's periodic rerun, creating
+# a new tab every cycle.  To avoid this we **only** call authenticate()
+# at module level when token.json already exists (so it returns instantly
+# from the file cache).  If there is no token yet the user clicks the
+# "Connect Drive" button in the sidebar.
 
-def _init_drive() -> bool:
-    if st.session_state.get("drive_connected"):
-        return True
-    try:
-        db.authenticate()
-        db.init_drive_structure()
-        st.session_state["drive_connected"] = True
-        return True
-    except FileNotFoundError:
-        return False
-    except Exception as e:
-        logger.warning("Drive init failed: %s", e)
-        return False
+if "drive_ready" not in st.session_state:
+    st.session_state["drive_ready"] = True
+    st.session_state["drive_connected"] = False
+
+    token_path = Path(__file__).parent / "token.json"
+    if token_path.exists():
+        try:
+            db.authenticate()
+            db.init_drive_structure()
+            st.session_state["drive_connected"] = True
+        except Exception as e:
+            logger.warning("Drive init failed: %s", e)
+
+def _is_drive_ok() -> bool:
+    return bool(st.session_state.get("drive_connected", False))
 
 
 def _poll_job_status() -> None:
     """Update pipeline state from Colab status.json. Called each render cycle."""
-    job_id = st.session_state.get("active_job_id")
-    state = st.session_state.get("pipeline_state")
-    if not job_id or state in ("done", "error", "idle"):
-        return
     try:
+        job_id = st.session_state.get("active_job_id")
+        state = st.session_state.get("pipeline_state")
+        if not job_id or state in ("done", "error", "idle"):
+            return
         status = db.read_status(job_id)
         if status:
             stage = status.get("stage", "")
@@ -102,7 +116,7 @@ def _poll_job_status() -> None:
             elif stage in ("error",):
                 st.session_state["pipeline_state"] = "error"
     except Exception:
-        pass
+        pass  # Never crash on poll — Colab may not be running yet
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -112,17 +126,30 @@ def _poll_job_status() -> None:
 def _sidebar() -> None:
     st.sidebar.title("🎙️ AI Podcast Studio")
 
-    drive_ok = _init_drive()
+    drive_ok = _is_drive_ok()
     color = "🟢" if drive_ok else "🔴"
     label = "Connected" if drive_ok else "Not connected"
     st.sidebar.markdown(f"{color} **Drive:** {label}")
 
     if not drive_ok:
-        st.sidebar.warning(
-            "Place `credentials.json` in `Politakis/` and restart.\n\n"
-            "Follow: Google Cloud Console → APIs & Services → Credentials → "
-            "Create OAuth Client ID (Desktop)"
-        )
+        creds_ok = (Path(__file__).parent / "credentials.json").is_file() or Path("credentials.json").is_file()
+        if creds_ok:
+            st.sidebar.info("`credentials.json` found — click below to connect.")
+        else:
+            st.sidebar.warning(
+                "Place `credentials.json` in `Politakis/` and restart.\n\n"
+                "Follow: Google Cloud Console → APIs & Services → Credentials → "
+                "Create OAuth Client ID (Desktop)"
+            )
+        if st.sidebar.button("🔗 Connect Google Drive"):
+            try:
+                with st.spinner("Opening Google OAuth in your browser..."):
+                    db.authenticate()
+                    db.init_drive_structure()
+                st.session_state["drive_connected"] = True
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Connection failed: {e}")
 
     job_id = st.session_state.get("active_job_id")
     state = st.session_state.get("pipeline_state", "idle")
@@ -138,7 +165,7 @@ def _sidebar() -> None:
     if fname:
         st.sidebar.markdown(f"**File:** `{fname}`")
 
-    # Progress bar
+    # Progress bar / status
     if job_id and state not in ("done", "error", "idle", "stalled"):
         try:
             status = db.read_status(job_id)
@@ -146,16 +173,17 @@ def _sidebar() -> None:
                 stage_label = status.get("stage", "...").replace("_", " ").title()
                 pct = status.get("progress_pct", 0)
                 st.sidebar.progress(pct, text=f"{stage_label}: {int(pct * 100)}%")
-
                 updated = status.get("updated_at", "")
                 if updated:
                     last_ts = datetime.fromisoformat(updated.replace("Z", "+00:00"))
                     age = (datetime.now(timezone.utc) - last_ts).total_seconds()
                     if age > config.STALL_TIMEOUT_SEC:
                         st.session_state["pipeline_state"] = "stalled"
-                        st.sidebar.warning("⚠️ Colab may have disconnected. Re-run the notebook to resume.")
+                        st.sidebar.warning("⚠️ Colab may have disconnected.")
+            else:
+                st.sidebar.caption("⏳ Awaiting Colab... (notebook not started yet)")
         except Exception:
-            pass
+            st.sidebar.caption("⏳ Polling Drive...")
 
     if state == "done":
         st.sidebar.success("✅ Complete!")
@@ -232,8 +260,11 @@ def _page_upload() -> None:
                 status = db.read_status(job_id)
                 if status:
                     st.json(status)
+                else:
+                    st.caption("⏳ Status will appear once Colab starts processing...")
+                    st.caption("Open the Colab notebook and run cells 1-4 to begin.")
             except Exception:
-                st.caption("Waiting...")
+                st.caption("⏳ Awaiting Colab...")
 
     # Show results when done
     state = st.session_state.get("pipeline_state")

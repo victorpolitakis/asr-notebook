@@ -104,6 +104,12 @@ def authenticate() -> Any:
     if token_path.exists():
         creds = Credentials.from_authorized_user_file(str(token_path), _SCOPES)
         logger.info("Drive bridge: loaded cached token from %s", token_path)
+        # Hard-return guard: if the cached token is valid, never fall through
+        # to the browser OAuth flow. This prevents a new tab from opening on
+        # every Streamlit rerun cycle.
+        if creds and creds.valid:
+            _SERVICE = _build_service("drive", "v3", credentials=creds)
+            return _SERVICE
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
