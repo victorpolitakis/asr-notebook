@@ -1,0 +1,13 @@
+credentials.json
+token.json
+*.wav
+*.mp3
+__pycache__/
+.env
+.DS_Store
+Politakis/results/*
+!Politakis/results/.gitkeep
+Politakis/credentials.json
+Politakis/token.json
+nul
+*.tmp.*

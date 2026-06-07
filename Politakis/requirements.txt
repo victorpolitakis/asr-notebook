@@ -1,0 +1,35 @@
+torch>=2.1.0
+torchaudio>=2.1.0
+numpy>=1.24.0
+
+# ── ASR (Speech Recognition) ─────────────────────────────────
+transformers>=4.45.0
+accelerate>=1.0.0
+datasets[audio]>=3.0.0
+
+# ── Audio Processing ─────────────────────────────────────────
+pydub>=0.25.1
+pyannote.audio>=3.1.1
+
+# ── LLM Integration ──────────────────────────────────────────
+openai>=1.30.0
+
+# ── NLP / Evaluation ─────────────────────────────────────────
+rouge-score>=0.1.2
+jiwer>=3.0.0
+
+# ── Resource Monitoring ──────────────────────────────────────
+psutil>=5.9.0
+
+# ── UI ───────────────────────────────────────────────────────
+streamlit>=1.35.0
+pandas>=2.0.0
+
+# ── Notebooks ────────────────────────────────────────────────
+jupyter>=1.0.0
+ipykernel>=6.0.0
+matplotlib>=3.7.0
+ipywidgets>=8.0.0
+
+# ── Audio Generation (test only) ─────────────────────────────
+gtts>=2.5.0
