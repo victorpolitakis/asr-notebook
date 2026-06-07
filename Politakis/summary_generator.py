@@ -533,7 +533,12 @@ def generate_summary(
     Returns:
         SummaryOutputs dict.
     """
-    return asyncio.run(generate_summary_async(transcript, entities))
+    try:
+        return asyncio.run(generate_summary_async(transcript, entities))
+    except RuntimeError:
+        return asyncio.get_event_loop().run_until_complete(
+            generate_summary_async(transcript, entities)
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

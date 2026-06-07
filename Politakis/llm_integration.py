@@ -592,8 +592,14 @@ def process_asr_stream_sync(
     Returns:
         dict matching SCHEMA 2.
     """
-    # asyncio.run() creates a fresh event loop, runs the coroutine, then closes it.
-    # Safe to call from any non-async context.
-    return asyncio.run(
-        process_asr_stream(asr_chunks, source_file=source_file)
-    )
+    # Use asyncio.run() when no loop is running; fall back to the existing
+    # loop (Colab/IPython) after nest_asyncio has patched it.
+    try:
+        return asyncio.run(
+            process_asr_stream(asr_chunks, source_file=source_file)
+        )
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(
+            process_asr_stream(asr_chunks, source_file=source_file)
+        )
