@@ -140,7 +140,7 @@ def transcribe_chunk(chunk: dict) -> dict:
     segments_iter, info = model.transcribe(
         audio_data,
         beam_size=3,
-        word_timestamps=True,
+        word_timestamps=False,
         vad_filter=False,
         language=None,
         task="transcribe",
