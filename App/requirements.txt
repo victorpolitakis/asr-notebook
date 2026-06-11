@@ -32,6 +32,11 @@ google-auth>=2.0.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.0.0
 
+# ── Notebook Workspace (URL + PDF ingestion) ─────────────────
+requests>=2.28.0
+html2text>=2024.2
+pymupdf>=1.23.0
+
 # ── Notebooks ────────────────────────────────────────────────
 jupyter>=1.0.0
 ipykernel>=6.0.0

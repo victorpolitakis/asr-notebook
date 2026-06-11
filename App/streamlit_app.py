@@ -351,6 +351,81 @@ def _page_notebook() -> None:
         st.warning("No transcript data available.")
         return
 
+    # ── Add a Source ────────────────────────────────────────────────
+    with st.expander("📎 Add a Source", expanded=False):
+        tab_url, tab_pdf = st.tabs(["🌐 URL", "📄 PDF"])
+        with tab_url:
+            url = st.text_input("Web page URL", placeholder="https://...")
+            if st.button("Fetch URL") and url.strip():
+                try:
+                    import requests
+                except ImportError:
+                    st.error("Run: pip install requests html2text")
+                else:
+                    with st.spinner("Fetching..."):
+                        try:
+                            r = requests.get(url.strip(), timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+                            r.raise_for_status()
+                            try:
+                                import html2text
+                                h = html2text.HTML2Text()
+                                h.ignore_links = True
+                                h.ignore_images = True
+                                h.body_width = 0
+                                md = h.handle(r.text)[:8000]
+                            except ImportError:
+                                # html2text fallback — strip tags manually
+                                import re
+                                raw = re.sub(r"<[^>]+>", " ", r.text)
+                                md = re.sub(r"\s+", " ", raw).strip()[:8000]
+                            st.session_state.setdefault("extra_sources", []).append({
+                                "type": "url", "title": url.strip()[:60], "content": md,
+                            })
+                            st.success("Fetched")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+        with tab_pdf:
+            pdf_file = st.file_uploader("Upload PDF", type=["pdf"], key="pdf_upload")
+            if pdf_file and st.button("Extract PDF"):
+                try:
+                    import fitz
+                except ImportError:
+                    st.error("Run: pip install pymupdf")
+                else:
+                    with st.spinner("Extracting..."):
+                        try:
+                            doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+                            text = "\n".join(page.get_text() for page in doc)[:8000]
+                            doc.close()
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+                        else:
+                            st.session_state.setdefault("extra_sources", []).append({
+                                "type": "pdf", "title": pdf_file.name[:60], "content": text,
+                            })
+                            st.success("Extracted")
+                            st.rerun()
+
+    # ── Source cards ────────────────────────────────────────────────
+    sources = st.session_state.get("extra_sources", [])
+    if sources:
+        st.subheader("📎 Sources")
+        for i, src in enumerate(sources):
+            tag = "🌐" if src["type"] == "url" else "📄"
+            with st.container():
+                st.markdown(
+                    f'<div class="source-card" style="padding:0.5rem 0.8rem;margin:0.3rem 0;'
+                    f'background:rgba(30,35,45,.6);border:1px solid #30363d;border-radius:8px;'
+                    f'font-size:0.82rem">'
+                    f'{tag} <strong>{src["title"]}</strong><br>'
+                    f'<span style="color:#8b949e">{src["content"][:80]}...</span></div>',
+                    unsafe_allow_html=True,
+                )
+            if st.button("✕", key=f"rm_src_{i}"):
+                st.session_state["extra_sources"].pop(i)
+                st.rerun()
+
     col_left, col_right = st.columns([3, 2])
 
     with col_left:
@@ -385,11 +460,33 @@ def _page_notebook() -> None:
         query = st.chat_input("Ask about the transcript...")
         if query:
             st.session_state["chat_history"].append({"role": "user", "content": query})
-            st.session_state["chat_history"].append({
-                "role": "assistant",
-                "content": "Q&A requires Colab runtime. Once connected, this will use `query_transcript()` from `summary_generator.py`.",
-                "source": "placeholder",
-            })
+            try:
+                import sys as _sys
+                import json as _json
+                from pathlib import Path
+                _sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
+                from summary_generator import _call_llm_sync, _QA_SYSTEM_PROMPT, query_transcript as _qt
+
+                # Build prompt with extra sources if present
+                extra_ctx = ""
+                for src in st.session_state.get("extra_sources", []):
+                    extra_ctx += f"\n[Additional source: {src['title']}]\n{src['content']}\n"
+
+                if extra_ctx:
+                    sys_prompt = _QA_SYSTEM_PROMPT + f"\n\nYou also have access to these reference sources:\n{extra_ctx}"
+                    payload = _json.dumps({
+                        "question": query,
+                        "full_text": transcript.get("full_text", ""),
+                        "persons": transcript.get("all_persons", []),
+                        "orgs": transcript.get("all_organizations", []),
+                        "keywords": transcript.get("all_keywords", []),
+                    }, ensure_ascii=False)
+                    answer = _call_llm_sync(sys_prompt, payload)
+                else:
+                    answer = _qt(query, transcript)
+            except Exception as e:
+                answer = f"Q&A not available: {e}"
+            st.session_state["chat_history"].append({"role": "assistant", "content": answer})
             st.rerun()
 
         st.divider()
