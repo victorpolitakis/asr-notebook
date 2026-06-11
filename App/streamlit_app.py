@@ -45,9 +45,38 @@ st.markdown("""
 /* Hide default Streamlit chrome */
 #MainMenu, footer, header { visibility: hidden; }
 
+/* Dark background */
+[data-testid="stAppViewContainer"] { background: #161616; }
+[data-testid="stMainBlockContainer"] { padding-top: 2rem; }
+
 /* Sidebar */
-[data-testid="stSidebar"] { background: #111; border-right: 1px solid #222; }
+[data-testid="stSidebar"] { background: #0f0f0f; border-right: 1px solid #1f1f1f; }
 [data-testid="stSidebar"] * { color: #ccc !important; }
+
+/* Sidebar nav buttons — flat, no border, left-aligned */
+[data-testid="stSidebar"] .stButton button {
+    background: transparent; border: none; text-align: left;
+    padding: 6px 12px; border-radius: 6px; color: #aaa; font-size: 13px; width: 100%;
+}
+[data-testid="stSidebar"] .stButton button:hover {
+    background: #1a1a1a; color: #fff;
+}
+
+/* File upload dropzone */
+div[data-testid="stFileUploadDropzone"] {
+    background: #1a1a1a !important; border: 1px dashed #333 !important; border-radius: 10px !important;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] { background: #1a1a1a; border-radius: 8px; padding: 4px; }
+.stTabs [data-baseweb="tab"] { border-radius: 6px; color: #888; }
+.stTabs [aria-selected="true"] { background: #2a2a2a !important; color: #fff !important; }
+
+/* Text inputs / areas */
+.stTextArea textarea { background: #1a1a1a !important; border: 1px solid #2a2a2a !important; color: #ddd !important; }
+
+/* Metric cards */
+.stMetric { background: #1a1a1a; border-radius: 10px; padding: 16px; border: 1px solid #2a2a2a; }
 
 /* Cards */
 .source-card {
@@ -66,10 +95,8 @@ st.markdown("""
     display: inline-block; background: #222; border: 1px solid #333;
     border-radius: 20px; padding: 2px 10px; margin: 2px; font-size: 12px; color: #aaa;
 }
-.status-bar {
-    background: #1a1a1a; border: 1px solid #2a2a2a;
-    border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; font-size: 13px;
-}
+.status-badge-green { background: #1e3a1e; color: #4aff9e; border-radius: 20px; padding: 4px 12px; font-size: 12px; }
+.status-badge-yellow { background: #3a361e; color: #ffe94a; border-radius: 20px; padding: 4px 12px; font-size: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -158,21 +185,49 @@ def _poll_job_status() -> None:
 # ═══════════════════════════════════════════════════════════════
 
 def _sidebar() -> None:
-    st.sidebar.markdown("### ECE22073")
-    st.sidebar.markdown("AI Audio Pipeline")
-    st.sidebar.divider()
+    st.sidebar.markdown("<b style='font-size:16px'>ECE22073</b>", unsafe_allow_html=True)
+    st.sidebar.markdown("<span style='font-size:12px;color:#888'>AI Audio Pipeline</span>", unsafe_allow_html=True)
+    st.sidebar.markdown("<hr style='border-color:#1f1f1f;margin:12px 0'>", unsafe_allow_html=True)
 
-    # Navigation first
-    page = st.sidebar.radio(
-        "",
-        ["Upload", "Notebook", "Summaries", "Podcast", "Accuracy Check"],
-        index=0,
-    )
-    st.session_state["_current_page"] = page
+    current = st.session_state.get("_current_page", "Upload")
 
-    st.sidebar.divider()
+    # ── Section: SOURCES ──
+    st.sidebar.markdown("<span style='font-size:10px;text-transform:uppercase;color:#666;letter-spacing:1px'>Sources</span>", unsafe_allow_html=True)
+    nav_items = {"Upload": "📤 Upload & Transcribe"}
+    for label, display in nav_items.items():
+        bg = "#1e3a5f" if current == label else ""
+        color = "#fff" if current == label else ""
+        st.sidebar.markdown(
+            f'<div style="background:{bg};border-radius:6px;padding:2px 0">',
+            unsafe_allow_html=True)
+        if st.sidebar.button(display, key=f"nav_{label}", use_container_width=True):
+            st.session_state["_current_page"] = label
+            st.rerun()
 
-    # Drive + Job status BELOW navigation
+    st.sidebar.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Section: ANALYZE ──
+    st.sidebar.markdown("<span style='font-size:10px;text-transform:uppercase;color:#666;letter-spacing:1px'>Analyze</span>", unsafe_allow_html=True)
+    for label in ["Notebook", "Summaries", "Accuracy Check"]:
+        icons = {"Notebook": "📝", "Summaries": "📊", "Accuracy Check": "🔬"}
+        display = f"{icons.get(label, '')} {label.replace('Accuracy Check', 'Accuracy')}" if label == "Accuracy Check" else f"{icons.get(label, '')} {label}"
+        bg = "#1e3a5f" if current == label else ""
+        if st.sidebar.button(display, key=f"nav_{label}", use_container_width=True):
+            st.session_state["_current_page"] = label
+            st.rerun()
+
+    st.sidebar.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Section: CREATE ──
+    st.sidebar.markdown("<span style='font-size:10px;text-transform:uppercase;color:#666;letter-spacing:1px'>Create</span>", unsafe_allow_html=True)
+    bg = "#1e3a5f" if current == "Podcast" else ""
+    if st.sidebar.button("🎧 Podcast", key="nav_Podcast", use_container_width=True):
+        st.session_state["_current_page"] = "Podcast"
+        st.rerun()
+
+    st.sidebar.markdown("<hr style='border-color:#1f1f1f;margin:12px 0'>", unsafe_allow_html=True)
+
+    # ── Drive + Pipeline status at bottom ──
     drive_ok = _is_drive_ok()
     color = "🟢" if drive_ok else "🔴"
     label = "Connected" if drive_ok else "Not connected"
@@ -258,13 +313,13 @@ def _load_results(job_id: str) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════
 
 def _page_upload() -> None:
-    st.header("📤 Upload & Transcribe")
-    st.markdown("Upload a WAV file for transcription by the Colab pipeline.")
+    st.markdown("## Sources")
+    st.caption("Add audio files to transcribe and analyze.")
 
     uploaded = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"], key="wav_uploader")
 
     _cur_state = st.session_state.get("pipeline_state", "idle")
-    if uploaded and _cur_state in ("idle", "done", "error") and st.button("🚀 Transcribe", type="primary"):
+    if uploaded and _cur_state in ("idle", "done", "error") and st.button("Transcribe", type="primary"):
         if not st.session_state.get("drive_connected"):
             st.error("Drive not connected. Check credentials.json in App/")
             return
@@ -288,17 +343,42 @@ def _page_upload() -> None:
             st.error(f"Upload failed: {e}")
             st.session_state["pipeline_state"] = "error"
 
+    # ── Source card after upload ───────────────────────────────────
     job_id = st.session_state.get("active_job_id")
+    fname = st.session_state.get("uploaded_filename", "")
+    state = st.session_state.get("pipeline_state", "idle")
+    if job_id and fname:
+        state_badge = {"processing": "status-badge-yellow", "done": "status-badge-green"}.get(state, "status-badge-yellow")
+        st.markdown(f"""
+        <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;
+        padding:16px;margin-top:16px;display:flex;align-items:center;gap:16px;">
+          <div style="font-size:32px">🎙️</div>
+          <div>
+            <div style="color:#fff;font-weight:500;font-size:14px">{fname}</div>
+            <div style="color:#666;font-size:12px;margin-top:4px">Job: {job_id}</div>
+          </div>
+          <div style="margin-left:auto">
+            <span class="{state_badge}">{state}</span>
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+        if state == "processing":
+            status = None
+            try:
+                status = db.read_status(job_id)
+            except Exception:
+                pass
+            pct = status.get("progress_pct", 0) if status else 0.5
+            st.progress(pct)
+
     if job_id:
-        with st.expander("Job status (raw)", expanded=False):
-            st.info(f"Job: `{job_id}`")
+        with st.expander("Raw status", expanded=False):
             try:
                 status = db.read_status(job_id)
                 if status:
                     st.json(status)
                 else:
-                    st.caption("⏳ Status will appear once Colab starts processing...")
-                    st.caption("Open the Colab notebook and run cells 1-4 to begin.")
+                    st.caption("⏳ Awaiting Colab...")
             except Exception as e:
                 st.caption(f"⏳ Awaiting Colab... (error: {e})")
 
@@ -309,7 +389,7 @@ def _page_upload() -> None:
 
         if transcript:
             st.divider()
-            st.subheader("📝 Transcript")
+            st.markdown("**Transcript**")
             chunks = transcript.get("chunks", [])
             langs = transcript.get("languages_detected", [])
             total_dur = transcript.get("total_duration_sec", 0)
@@ -353,7 +433,7 @@ def _page_upload() -> None:
         summary_data = results.get("summary_outputs", {})
         if summary_data:
             st.divider()
-            st.subheader("📊 Summary")
+            st.markdown("**Summary**")
             summaries = summary_data.get("summaries", {})
             for level in ["tldr", "executive", "deep_dive"]:
                 if level in summaries:
@@ -366,176 +446,185 @@ def _page_upload() -> None:
 # ═══════════════════════════════════════════════════════════════
 
 def _page_notebook() -> None:
-    st.header("📝 Notebook Workspace")
+    st.markdown("## Notebook Workspace")
+
     state = st.session_state.get("pipeline_state")
     job_id = st.session_state.get("active_job_id")
 
-    if state != "done" or not job_id:
-        st.info("Complete an upload on 'Upload & Transcribe' first.")
-        return
-
-    results = _load_results(job_id)
-    transcript = results.get("transcript", {})
-    summary_data = results.get("summary_outputs", {})
-
-    if not transcript:
-        st.warning("No transcript data available.")
-        return
-
-    # ── Add a Source ────────────────────────────────────────────────
-    with st.expander("📎 Add a Source", expanded=False):
-        tab_url, tab_pdf = st.tabs(["🌐 URL", "📄 PDF"])
-        with tab_url:
-            url = st.text_input("Web page URL", placeholder="https://...")
-            if st.button("Fetch URL") and url.strip():
-                try:
-                    import requests
-                except ImportError:
-                    st.error("Run: pip install requests html2text")
-                else:
-                    with st.spinner("Fetching..."):
-                        try:
-                            r = requests.get(url.strip(), timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-                            r.raise_for_status()
-                            try:
-                                import html2text
-                                h = html2text.HTML2Text()
-                                h.ignore_links = True
-                                h.ignore_images = True
-                                h.body_width = 0
-                                md = h.handle(r.text)[:8000]
-                            except ImportError:
-                                # html2text fallback — strip tags manually
-                                import re
-                                raw = re.sub(r"<[^>]+>", " ", r.text)
-                                md = re.sub(r"\s+", " ", raw).strip()[:8000]
-                            st.session_state.setdefault("extra_sources", []).append({
-                                "type": "url", "title": url.strip()[:60], "content": md,
-                            })
-                            st.success("Fetched")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed: {e}")
-        with tab_pdf:
-            pdf_file = st.file_uploader("Upload PDF", type=["pdf"], key="pdf_upload")
-            if pdf_file and st.button("Extract PDF"):
-                try:
-                    import fitz
-                except ImportError:
-                    st.error("Run: pip install pymupdf")
-                else:
-                    with st.spinner("Extracting..."):
-                        try:
-                            doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-                            text = "\n".join(page.get_text() for page in doc)[:8000]
-                            doc.close()
-                        except Exception as e:
-                            st.error(f"Failed: {e}")
-                        else:
-                            st.session_state.setdefault("extra_sources", []).append({
-                                "type": "pdf", "title": pdf_file.name[:60], "content": text,
-                            })
-                            st.success("Extracted")
-                            st.rerun()
-
-    # ── Source cards ────────────────────────────────────────────────
-    sources = st.session_state.get("extra_sources", [])
-    if sources:
-        st.subheader("📎 Sources")
-        for i, src in enumerate(sources):
-            tag = "🌐" if src["type"] == "url" else "📄"
-            with st.container():
-                st.markdown(
-                    f'<div class="source-card" style="padding:0.5rem 0.8rem;margin:0.3rem 0;'
-                    f'background:rgba(30,35,45,.6);border:1px solid #30363d;border-radius:8px;'
-                    f'font-size:0.82rem">'
-                    f'{tag} <strong>{src["title"]}</strong><br>'
-                    f'<span style="color:#8b949e">{src["content"][:80]}...</span></div>',
-                    unsafe_allow_html=True,
-                )
-            if st.button("✕", key=f"rm_src_{i}"):
-                st.session_state["extra_sources"].pop(i)
-                st.rerun()
-
-    col_sources, col_chat, col_studio = st.columns([1, 2, 1])
-
-    # ── Left: Transcript segments as source cards ──────────────────
+    results = {}
+    transcript = {}
+    summary_data = {}
     all_segments = []
-    for chunk in transcript.get("chunks", []):
-        for seg in chunk.get("segments", []):
-            if seg.get("text", "").strip():
-                all_segments.append({
-                    "speaker": seg.get("speaker", "Speaker A"),
-                    "text": seg["text"].strip(),
-                    "start": seg.get("start", chunk.get("start_time_sec", 0)),
-                })
+    entities = {}
 
+    if state == "done" and job_id:
+        results = _load_results(job_id)
+        transcript = results.get("transcript", {})
+        summary_data = results.get("summary_outputs", {})
+        for chunk in transcript.get("chunks", []):
+            for seg in chunk.get("segments", []):
+                if seg.get("text", "").strip():
+                    all_segments.append({
+                        "speaker": seg.get("speaker", "Speaker A"),
+                        "text": seg["text"].strip(),
+                        "start": seg.get("start", chunk.get("start_time_sec", 0)),
+                    })
+        entities = summary_data.get("entities", {}) if summary_data else {}
+
+    col_sources, col_chat, col_studio = st.columns([1, 2, 1], gap="medium")
+
+    # ── Left: Sources ──────────────────────────────────────────────
     with col_sources:
         st.markdown("**Sources**")
-        for i, seg in enumerate(all_segments[:30]):
+        if all_segments:
+            for seg in all_segments[:30]:
+                border_color = "#4a9eff" if "A" in seg["speaker"] else "#4aff9e"
+                st.markdown(
+                    f'<div style="background:#1a1a1a;border-left:3px solid {border_color};'
+                    f'border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:13px">'
+                    f'<strong>{seg["speaker"]}</strong> '
+                    f'<span style="opacity:0.4">[{seg["start"]:.0f}s]</span><br>'
+                    f'<span>{seg["text"][:60]}{"…" if len(seg["text"])>60 else ""}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+        else:
             st.markdown(
-                f'<div class="source-card">'
-                f'<strong>{seg["speaker"]}</strong> '
-                f'<span style="opacity:0.4">[{seg["start"]:.0f}s]</span><br>'
-                f'<span style="font-size:13px">{seg["text"][:80]}{"..." if len(seg["text"])>80 else ""}</span>'
-                f'</div>',
+                '<div class="source-card" style="color:#666">'
+                'No sources yet. Upload an audio file to get started.</div>',
+                unsafe_allow_html=True)
+
+        # Add a Source expander
+        with st.expander("Add a source", expanded=False):
+            tab_url, tab_pdf = st.tabs(["URL", "PDF"])
+            with tab_url:
+                url = st.text_input("Web page URL", placeholder="https://...")
+                if st.button("Fetch URL") and url.strip():
+                    try:
+                        import requests
+                    except ImportError:
+                        st.error("Run: pip install requests html2text")
+                    else:
+                        with st.spinner("Fetching..."):
+                            try:
+                                r = requests.get(url.strip(), timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+                                r.raise_for_status()
+                                try:
+                                    import html2text
+                                    h = html2text.HTML2Text()
+                                    h.ignore_links = True; h.ignore_images = True; h.body_width = 0
+                                    md = h.handle(r.text)[:8000]
+                                except ImportError:
+                                    import re as _re
+                                    raw = _re.sub(r"<[^>]+>", " ", r.text)
+                                    md = _re.sub(r"\s+", " ", raw).strip()[:8000]
+                                st.session_state.setdefault("extra_sources", []).append({
+                                    "type": "url", "title": url.strip()[:60], "content": md,
+                                })
+                                st.success("Fetched"); st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed: {e}")
+            with tab_pdf:
+                pdf_file = st.file_uploader("Upload PDF", type=["pdf"], key="pdf_upload")
+                if pdf_file and st.button("Extract PDF"):
+                    try:
+                        import fitz
+                    except ImportError:
+                        st.error("Run: pip install pymupdf")
+                    else:
+                        with st.spinner("Extracting..."):
+                            try:
+                                doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+                                text = "\n".join(page.get_text() for page in doc)[:8000]
+                                doc.close()
+                            except Exception as e:
+                                st.error(f"Failed: {e}")
+                            else:
+                                st.session_state.setdefault("extra_sources", []).append({
+                                    "type": "pdf", "title": pdf_file.name[:60], "content": text,
+                                })
+                                st.success("Extracted"); st.rerun()
+
+        for i, src in enumerate(st.session_state.get("extra_sources", [])):
+            tag = "🌐" if src["type"] == "url" else "📄"
+            st.markdown(
+                f'<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;'
+                f'padding:6px 10px;margin:4px 0;font-size:12px">{tag} '
+                f'<strong>{src["title"]}</strong></div>',
                 unsafe_allow_html=True,
             )
 
-    # ── Center: Q&A chat ──────────────────────────────────────────
+    # ── Center: Chat ───────────────────────────────────────────────
     with col_chat:
-        st.subheader("💬 Q&A")
+        st.markdown("**Chat**")
+        has_history = bool(st.session_state.get("chat_history", []))
         for msg in st.session_state.get("chat_history", []):
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
+
+        if not has_history and transcript:
+            st.markdown("<span style='font-size:12px;color:#888'>Suggested questions:</span>", unsafe_allow_html=True)
+            suggestions = ["Summarize this transcript", "Who are the speakers?", "What are the key topics?"]
+            for s in suggestions:
+                if st.button(s, key=f"sugg_{s[:20]}"):
+                    st.session_state["chat_history"] = [{"role": "user", "content": s}]
+                    st.rerun()
+
         query = st.chat_input("Ask about the transcript...")
         if query:
-            st.session_state["chat_history"].append({"role": "user", "content": query})
-            try:
-                import sys as _sys
-                import json as _json
-                from pathlib import Path
-                _sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
-                from summary_generator import _call_llm_sync, _QA_SYSTEM_PROMPT, query_transcript as _qt
+            st.session_state.setdefault("chat_history", []).append({"role": "user", "content": query})
+            if transcript:
+                try:
+                    import sys as _sys
+                    import json as _json
+                    from pathlib import Path
+                    _sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
+                    from summary_generator import _call_llm_sync, _QA_SYSTEM_PROMPT, query_transcript as _qt
 
-                extra_ctx = ""
-                for src in st.session_state.get("extra_sources", []):
-                    extra_ctx += f"\n[Additional source: {src['title']}]\n{src['content']}\n"
+                    extra_ctx = ""
+                    for src in st.session_state.get("extra_sources", []):
+                        extra_ctx += f"\n[Additional source: {src['title']}]\n{src['content']}\n"
 
-                if extra_ctx:
-                    sys_prompt = _QA_SYSTEM_PROMPT + f"\n\nYou also have access to these reference sources:\n{extra_ctx}"
-                    payload = _json.dumps({
-                        "question": query,
-                        "full_text": transcript.get("full_text", ""),
-                        "persons": transcript.get("all_persons", []),
-                        "orgs": transcript.get("all_organizations", []),
-                        "keywords": transcript.get("all_keywords", []),
-                    }, ensure_ascii=False)
-                    answer = _call_llm_sync(sys_prompt, payload)
-                else:
-                    answer = _qt(query, transcript)
-            except Exception as e:
-                answer = f"Q&A not available: {e}"
+                    if extra_ctx:
+                        sys_prompt = _QA_SYSTEM_PROMPT + f"\n\nReference sources:\n{extra_ctx}"
+                        payload = _json.dumps({
+                            "question": query, "full_text": transcript.get("full_text", ""),
+                            "persons": transcript.get("all_persons", []),
+                            "orgs": transcript.get("all_organizations", []),
+                            "keywords": transcript.get("all_keywords", []),
+                        }, ensure_ascii=False)
+                        answer = _call_llm_sync(sys_prompt, payload)
+                    else:
+                        answer = _qt(query, transcript)
+                except Exception as e:
+                    answer = f"Q&A not available: {e}"
+            else:
+                answer = "Upload a file and complete transcription on Colab first to enable Q&A."
             st.session_state["chat_history"].append({"role": "assistant", "content": answer})
             st.rerun()
 
-    # ── Right: Entity chips + Notes ────────────────────────────────
-    entities = summary_data.get("entities", {}) if summary_data else {}
+    # ── Right: Studio ──────────────────────────────────────────────
     with col_studio:
-        st.markdown("**Entities**")
-        for person in entities.get("persons", [])[:10]:
-            name = person if isinstance(person, str) else person.get("name", "")
-            st.markdown(f'<span class="entity-chip">👤 {name}</span>', unsafe_allow_html=True)
-        for org in entities.get("organizations", [])[:10]:
-            name = org if isinstance(org, str) else org.get("name", "")
-            st.markdown(f'<span class="entity-chip">🏢 {name}</span>', unsafe_allow_html=True)
-        for kw in entities.get("keywords", [])[:15]:
-            name = kw if isinstance(kw, str) else kw.get("name", "")
-            st.markdown(f'<span class="entity-chip">🔑 {name}</span>', unsafe_allow_html=True)
+        st.markdown("**Studio**")
+        for label, icon in [("Podcast", "🎧"), ("Summaries", "📊"), ("Accuracy Check", "🔬")]:
+            display = f"{icon} {label.replace('Accuracy Check', 'Accuracy')}"
+            if st.button(display, key=f"studio_{label}", use_container_width=True):
+                st.session_state["_current_page"] = label
+                st.rerun()
+
+        if entities:
+            st.divider()
+            st.markdown("<span style='font-size:11px;color:#888'>Entities</span>", unsafe_allow_html=True)
+            for person in entities.get("persons", [])[:5]:
+                name = person if isinstance(person, str) else person.get("name", "")
+                st.markdown(f'<span class="entity-chip">👤 {name}</span>', unsafe_allow_html=True)
+            for kw in entities.get("keywords", [])[:10]:
+                name = kw if isinstance(kw, str) else kw.get("name", "")
+                st.markdown(f'<span class="entity-chip">🔑 {name}</span>', unsafe_allow_html=True)
 
         st.divider()
-        st.markdown("**Notes**")
-        new_note = st.text_area("Save a note", key="note_input", height=80)
+        st.markdown("<span style='font-size:11px;color:#888'>Notes</span>", unsafe_allow_html=True)
+        new_note = st.text_area("", key="note_input", height=60, placeholder="Write a note...")
         if st.button("Save Note") and new_note.strip():
             st.session_state.setdefault("saved_notes", []).append({
                 "text": new_note.strip(),
@@ -543,7 +632,7 @@ def _page_notebook() -> None:
             })
             st.rerun()
         for i, note in enumerate(st.session_state.get("saved_notes", [])):
-            st.markdown(f"**{note['timestamp']}**: {note['text'][:100]}...")
+            st.markdown(f"**{note['timestamp']}** {note['text'][:80]}{'…' if len(note['text'])>80 else ''}")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -551,12 +640,12 @@ def _page_notebook() -> None:
 # ═══════════════════════════════════════════════════════════════
 
 def _page_summaries() -> None:
-    st.header("📊 Summaries")
+    st.markdown("## Summaries")
     state = st.session_state.get("pipeline_state")
     job_id = st.session_state.get("active_job_id")
 
     if state != "done" or not job_id:
-        st.info("Complete an upload on 'Upload & Transcribe' first.")
+        st.info("Complete an upload on Upload first.")
         return
 
     results = _load_results(job_id)
@@ -570,7 +659,7 @@ def _page_summaries() -> None:
     cols = st.columns(3)
     for idx, (title, key) in enumerate(tier_info):
         with cols[idx]:
-            st.subheader(title)
+            st.markdown(f"**{title}**")
             text = summaries.get(key, "N/A")
             st.markdown(f'<div class="source-card">{text}</div>', unsafe_allow_html=True)
             st.download_button(f"Download {title}", text, file_name=f"{key}.txt", mime="text/plain")
@@ -578,11 +667,11 @@ def _page_summaries() -> None:
     chapters = sd.get("chapters", [])
     if chapters:
         st.divider()
-        st.subheader("📖 Chapters")
+        st.markdown("**Chapters**")
         for ch in chapters:
             ts = ch.get("timestamp", 0)
             title = ch.get("title", "Chapter")
-            st.markdown(f"**`[{int(ts//60):02d}:{int(ts%60):02d}]`** {title}")
+            st.markdown(f"`[{int(ts//60):02d}:{int(ts%60):02d}]` {title}")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -590,7 +679,7 @@ def _page_summaries() -> None:
 # ═══════════════════════════════════════════════════════════════
 
 def _page_podcast() -> None:
-    st.header("🎧 Podcast Studio")
+    st.markdown("## Podcast Studio")
 
     if not st.session_state.get("drive_connected"):
         st.warning("Drive connection required.")
@@ -650,19 +739,18 @@ def _page_podcast() -> None:
                 vs2 = st.text_input("Voice preset", key="b_voice_v")
                 b_voice = vs2 if vs2.strip() else None
 
-    # VRAM estimate
-    vram_a = {"kokoro": 2, "dia": 10, "bark": 8, "xtts_v2": 6, "f5_tts": 4}.get(a_tts, 6)
-    vram_b = {"kokoro": 2, "dia": 10, "bark": 8, "xtts_v2": 6, "f5_tts": 4}.get(b_tts, 6)
-    total_vram = vram_a + vram_b if a_tts != b_tts or a_tts != "dia" else vram_a
-    vram_label = "🟢" if total_vram <= 14 else "🟠" if total_vram <= 16 else "🔴"
-    st.info(f"{vram_label} Est. VRAM: **{total_vram:.0f} GB** (T4 = ~16 GB)")
-
     with tab4:
+        vram_a = {"kokoro": 2, "dia": 10, "bark": 8, "xtts_v2": 6, "f5_tts": 4}.get(a_tts, 6)
+        vram_b = {"kokoro": 2, "dia": 10, "bark": 8, "xtts_v2": 6, "f5_tts": 4}.get(b_tts, 6)
+        total_vram = vram_a + vram_b if a_tts != b_tts or a_tts != "dia" else vram_a
+        vram_label = "🟢" if total_vram <= 14 else "🟠" if total_vram <= 16 else "🔴"
+        st.info(f"{vram_label} Est. VRAM: **{total_vram:.0f} GB** (T4 = ~16 GB)")
+
         bc1, bc2 = st.columns(2)
         with bc1:
-            preview_clicked = st.button("📝 Script Preview", disabled=not source_text.strip())
+            preview_clicked = st.button("Script Preview", disabled=not source_text.strip())
         with bc2:
-            generate_clicked = st.button("🎙️ Generate Podcast", type="primary", disabled=not source_text.strip())
+            generate_clicked = st.button("Generate Podcast", type="primary", disabled=not source_text.strip())
 
         if preview_clicked:
             st.info("Script preview requires Colab runtime. Source text: " + str(len(source_text.split())) + " words.")
@@ -684,10 +772,15 @@ def _page_podcast() -> None:
             st.success(f"Podcast job `{job_id}` submitted!")
             st.rerun()
 
+        with st.expander("Compare Models", expanded=False):
+            compare_models = st.multiselect("Models", ["kokoro", "dia", "bark", "xtts_v2", "f5_tts"], default=["kokoro", "dia"])
+            if st.button("Run Comparison") and compare_models and source_text.strip():
+                st.info(f"Comparison would run sequentially on Colab ({len(compare_models)} models). Requires Colab runtime.")
+
     # Poll for podcast MP3
     if state == "done" and st.session_state.get("active_job_type") == "podcast":
         st.divider()
-        st.subheader("🎧 Your Podcast")
+        st.markdown("**Your Podcast**")
         try:
             for f in db.list_files(config.DRIVE_OUTPUT_PODCASTS):
                 if f["name"] == f"{st.session_state['active_job_id']}.mp3":
@@ -695,7 +788,7 @@ def _page_podcast() -> None:
                         db.download_file(f["id"], tmp.name)
                         st.audio(tmp.name, format="audio/mp3")
                         with open(tmp.name, "rb") as mp3:
-                            st.download_button("⬇️ Download MP3", mp3.read(), file_name=f["name"])
+                            st.download_button("Download MP3", mp3.read(), file_name=f["name"])
                         os.unlink(tmp.name)
                     break
             else:
@@ -703,22 +796,15 @@ def _page_podcast() -> None:
         except Exception as e:
             st.warning(f"Could not load podcast: {e}")
 
-    # Compare
-    with st.expander("🔬 Compare Models", expanded=False):
-        compare_models = st.multiselect("Models", ["kokoro", "dia", "bark", "xtts_v2", "f5_tts"], default=["kokoro", "dia"])
-        if st.button("Run Comparison") and compare_models and source_text.strip():
-            st.info(f"Comparison would run sequentially on Colab ({len(compare_models)} models). Requires Colab runtime.")
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Page: Accuracy Check
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _page_accuracy() -> None:
-    st.markdown("## 🔍 Accuracy Check")
+    st.markdown("## Accuracy Check")
     st.caption("Compare pipeline output against a reference transcript.")
 
-    # ── Get hypothesis text ──────────────────────────────────────────
     hyp = ""
     tr = st.session_state.get("transcript") or {}
     norm = tr.get("normalized_full_text", "") or tr.get("full_text", "")
@@ -730,7 +816,6 @@ def _page_accuracy() -> None:
         if up_hyp:
             hyp = up_hyp.read().decode("utf-8", errors="replace")
 
-    # ── Get reference text ───────────────────────────────────────────
     up_ref = st.file_uploader("Reference / Ground Truth (.txt)", type=["txt"], key="acc_ref")
     ref = ""
     if up_ref:
@@ -756,7 +841,6 @@ def _page_accuracy() -> None:
             st.error("Run: pip install rouge-score")
             return
 
-        # ── Metrics ──────────────────────────────────────────────────
         wer_val = round(jiwer.wer(ref, hyp), 4)
         scorer = rouge_scorer.RougeScorer(["rouge1", "rougeL"], use_stemmer=True)
         rouge = scorer.score(ref, hyp)
@@ -768,7 +852,6 @@ def _page_accuracy() -> None:
         m2.metric("ROUGE-1 F1", f"{r1:.4f}")
         m3.metric("ROUGE-L F1", f"{rl:.4f}")
 
-        # ── Diff view ────────────────────────────────────────────────
         import difflib
         diff = list(difflib.ndiff(ref.split(), hyp.split()))
         html_parts = []
@@ -776,15 +859,16 @@ def _page_accuracy() -> None:
             if token.startswith("- "):
                 html_parts.append(f'<span style="color:#f85149;text-decoration:line-through">{token[2:]}</span>')
             elif token.startswith("+ "):
-                html_parts.append(f'<span style="color:#f85149">{token[2:]}</span>')
+                html_parts.append(f'<span style="color:#4aff9e">{token[2:]}</span>')
             elif token.startswith("? "):
                 pass
             else:
                 html_parts.append(token[2:] if token.startswith("  ") else token)
         html = " ".join(html_parts)
-        with st.expander("🔬 Word-Level Diff", expanded=True):
+        with st.expander("Word-Level Diff", expanded=True):
             st.markdown(
-                f'<div style="font-family:monospace;line-height:1.8;max-height:400px;overflow-y:auto;padding:1rem;background:rgba(22,27,34,.9);border:1px solid #30363d;border-radius:8px">{html}</div>',
+                f'<div style="font-family:monospace;line-height:1.8;max-height:400px;overflow-y:auto;'
+                f'padding:1rem;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px">{html}</div>',
                 unsafe_allow_html=True,
             )
 
