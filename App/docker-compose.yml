@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  streamlit:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ../:/app
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    working_dir: /app/App
+    command: streamlit run streamlit_app.py --server.address 0.0.0.0
