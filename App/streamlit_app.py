@@ -39,6 +39,40 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Global CSS ────────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* Hide default Streamlit chrome */
+#MainMenu, footer, header { visibility: hidden; }
+
+/* Sidebar */
+[data-testid="stSidebar"] { background: #111; border-right: 1px solid #222; }
+[data-testid="stSidebar"] * { color: #ccc !important; }
+
+/* Cards */
+.source-card {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; font-size: 14px;
+}
+.speaker-bubble-a {
+    background: #1e2a3a; border-left: 3px solid #4a9eff;
+    border-radius: 6px; padding: 8px 12px; margin: 4px 0; font-size: 14px;
+}
+.speaker-bubble-b {
+    background: #1a2a1a; border-left: 3px solid #4aff9e;
+    border-radius: 6px; padding: 8px 12px; margin: 4px 0; font-size: 14px;
+}
+.entity-chip {
+    display: inline-block; background: #222; border: 1px solid #333;
+    border-radius: 20px; padding: 2px 10px; margin: 2px; font-size: 12px; color: #aaa;
+}
+.status-bar {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; font-size: 13px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ═══════════════════════════════════════════════════════════════
 # Auto-refresh for polling (ONLY when a job is actively processing)
 # ═══════════════════════════════════════════════════════════════
@@ -124,8 +158,21 @@ def _poll_job_status() -> None:
 # ═══════════════════════════════════════════════════════════════
 
 def _sidebar() -> None:
-    st.sidebar.title("🎙️ AI Podcast Studio")
+    st.sidebar.markdown("### ECE22073")
+    st.sidebar.markdown("AI Audio Pipeline")
+    st.sidebar.divider()
 
+    # Navigation first
+    page = st.sidebar.radio(
+        "",
+        ["Upload", "Notebook", "Summaries", "Podcast", "Accuracy Check"],
+        index=0,
+    )
+    st.session_state["_current_page"] = page
+
+    st.sidebar.divider()
+
+    # Drive + Job status BELOW navigation
     drive_ok = _is_drive_ok()
     color = "🟢" if drive_ok else "🔴"
     label = "Connected" if drive_ok else "Not connected"
@@ -165,7 +212,6 @@ def _sidebar() -> None:
     if fname:
         st.sidebar.markdown(f"**File:** `{fname}`")
 
-    # Progress bar / status
     if job_id and state not in ("done", "error", "idle", "stalled"):
         try:
             status = db.read_status(job_id)
@@ -187,14 +233,6 @@ def _sidebar() -> None:
 
     if state == "done":
         st.sidebar.success("✅ Complete!")
-
-    st.sidebar.divider()
-    page = st.sidebar.radio(
-        "Navigation",
-        ["📤 Upload & Transcribe", "📝 Notebook Workspace", "📊 Summaries", "🎧 Podcast Studio", "🔍 Accuracy Check"],
-        index=0,
-    )
-    st.session_state["_current_page"] = page
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -223,39 +261,36 @@ def _page_upload() -> None:
     st.header("📤 Upload & Transcribe")
     st.markdown("Upload a WAV file for transcription by the Colab pipeline.")
 
-    col1, col2 = st.columns([2, 1])
+    uploaded = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"], key="wav_uploader")
 
-    with col1:
-        uploaded = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"], key="wav_uploader")
+    _cur_state = st.session_state.get("pipeline_state", "idle")
+    if uploaded and _cur_state in ("idle", "done", "error") and st.button("🚀 Transcribe", type="primary"):
+        if not st.session_state.get("drive_connected"):
+            st.error("Drive not connected. Check credentials.json in App/")
+            return
 
-        _cur_state = st.session_state.get("pipeline_state", "idle")
-        if uploaded and _cur_state in ("idle", "done", "error") and st.button("🚀 Transcribe", type="primary"):
-            if not st.session_state.get("drive_connected"):
-                st.error("Drive not connected. Check credentials.json in App/")
-                return
+        job_id = db.generate_job_id()
+        st.session_state["active_job_id"] = job_id
+        st.session_state["active_job_type"] = "asr"
+        st.session_state["pipeline_state"] = "uploading"
+        st.session_state["uploaded_filename"] = uploaded.name
 
-            job_id = db.generate_job_id()
-            st.session_state["active_job_id"] = job_id
-            st.session_state["active_job_type"] = "asr"
-            st.session_state["pipeline_state"] = "uploading"
-            st.session_state["uploaded_filename"] = uploaded.name
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(uploaded.read())
+            tmp_path = tmp.name
+        try:
+            db.upload_file(tmp_path, config.DRIVE_INPUT, filename=f"{job_id}.wav")
+            os.unlink(tmp_path)
+            st.session_state["pipeline_state"] = "processing"
+            st.success(f"Job `{job_id}` submitted. Processing on Colab...")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Upload failed: {e}")
+            st.session_state["pipeline_state"] = "error"
 
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                tmp.write(uploaded.read())
-                tmp_path = tmp.name
-            try:
-                db.upload_file(tmp_path, config.DRIVE_INPUT, filename=f"{job_id}.wav")
-                os.unlink(tmp_path)
-                st.session_state["pipeline_state"] = "processing"
-                st.success(f"Job `{job_id}` submitted. Processing on Colab...")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Upload failed: {e}")
-                st.session_state["pipeline_state"] = "error"
-
-    with col2:
-        job_id = st.session_state.get("active_job_id")
-        if job_id:
+    job_id = st.session_state.get("active_job_id")
+    if job_id:
+        with st.expander("Job status (raw)", expanded=False):
             st.info(f"Job: `{job_id}`")
             try:
                 status = db.read_status(job_id)
@@ -264,17 +299,9 @@ def _page_upload() -> None:
                 else:
                     st.caption("⏳ Status will appear once Colab starts processing...")
                     st.caption("Open the Colab notebook and run cells 1-4 to begin.")
-                    # Debug: show raw folder contents
-                    with st.expander("🔍 Debug: Drive folder contents"):
-                        try:
-                            files = db.list_files(f"{config.DRIVE_OUTPUT}/{job_id}")
-                            st.write(f"Files found in output/{job_id}:", files)
-                        except Exception as e:
-                            st.error(f"list_files error: {e}")
             except Exception as e:
                 st.caption(f"⏳ Awaiting Colab... (error: {e})")
 
-    # Show results when done
     state = st.session_state.get("pipeline_state")
     if state == "done" and st.session_state.get("active_job_id"):
         results = _load_results(st.session_state["active_job_id"])
@@ -287,7 +314,6 @@ def _page_upload() -> None:
             langs = transcript.get("languages_detected", [])
             total_dur = transcript.get("total_duration_sec", 0)
 
-            # Collect all segments across all VAD chunks
             all_segments = []
             for chunk in chunks:
                 segs = chunk.get("segments", [])
@@ -299,7 +325,6 @@ def _page_upload() -> None:
                             "start": seg.get("start", chunk.get("start_time_sec", 0)),
                         })
                 elif chunk.get("full_text", "").strip():
-                    # Fallback: no segments, use chunk full_text
                     all_segments.append({
                         "speaker": "Speaker A",
                         "text": chunk.get("full_text", ""),
@@ -316,8 +341,14 @@ def _page_upload() -> None:
 
             for seg in all_segments:
                 if seg["text"].strip():
-                    ts = f"[{seg['start']:.1f}s]"
-                    st.markdown(f"**{seg['speaker']}** {ts}: {seg['text']}")
+                    css_class = "speaker-bubble-a" if "A" in seg["speaker"] else "speaker-bubble-b"
+                    ts = f"{seg['start']:.1f}s"
+                    st.markdown(
+                        f'<div class="{css_class}">'
+                        f'<span style="opacity:0.5;font-size:11px">{seg["speaker"]} · {ts}</span><br>'
+                        f'{seg["text"]}</div>',
+                        unsafe_allow_html=True,
+                    )
 
         summary_data = results.get("summary_outputs", {})
         if summary_data:
@@ -426,33 +457,33 @@ def _page_notebook() -> None:
                 st.session_state["extra_sources"].pop(i)
                 st.rerun()
 
-    col_left, col_right = st.columns([3, 2])
+    col_sources, col_chat, col_studio = st.columns([1, 2, 1])
 
-    with col_left:
-        st.subheader("📄 Transcript")
-        for chunk in transcript.get("chunks", []):
-            for seg in chunk.get("segments", []):
-                text = seg.get("text", "").strip()
-                if not text:
-                    continue
-                speaker = seg.get("speaker", "Speaker A")
-                ts = f"`[{seg.get('start', chunk.get('start_time_sec', 0)):.1f}s]`"
-                st.markdown(f"**{speaker}** {ts}: {text}")
+    # ── Left: Transcript segments as source cards ──────────────────
+    all_segments = []
+    for chunk in transcript.get("chunks", []):
+        for seg in chunk.get("segments", []):
+            if seg.get("text", "").strip():
+                all_segments.append({
+                    "speaker": seg.get("speaker", "Speaker A"),
+                    "text": seg["text"].strip(),
+                    "start": seg.get("start", chunk.get("start_time_sec", 0)),
+                })
 
-        entities = summary_data.get("entities", {}) if summary_data else {}
-        if entities:
-            st.divider()
-            st.subheader("🏷️ Entity Chips")
-            for label, items in [
-                ("👤 Persons", entities.get("persons", [])),
-                ("🏢 Organizations", entities.get("organizations", [])),
-                ("🔑 Keywords", entities.get("keywords", [])),
-            ]:
-                if items:
-                    names = [it if isinstance(it, str) else it.get("name", str(it)) for it in items[:20]]
-                    st.markdown(f"**{label}:** " + "  ".join(f"`{n}`" for n in names))
+    with col_sources:
+        st.markdown("**Sources**")
+        for i, seg in enumerate(all_segments[:30]):
+            st.markdown(
+                f'<div class="source-card">'
+                f'<strong>{seg["speaker"]}</strong> '
+                f'<span style="opacity:0.4">[{seg["start"]:.0f}s]</span><br>'
+                f'<span style="font-size:13px">{seg["text"][:80]}{"..." if len(seg["text"])>80 else ""}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-    with col_right:
+    # ── Center: Q&A chat ──────────────────────────────────────────
+    with col_chat:
         st.subheader("💬 Q&A")
         for msg in st.session_state.get("chat_history", []):
             with st.chat_message(msg["role"]):
@@ -467,7 +498,6 @@ def _page_notebook() -> None:
                 _sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
                 from summary_generator import _call_llm_sync, _QA_SYSTEM_PROMPT, query_transcript as _qt
 
-                # Build prompt with extra sources if present
                 extra_ctx = ""
                 for src in st.session_state.get("extra_sources", []):
                     extra_ctx += f"\n[Additional source: {src['title']}]\n{src['content']}\n"
@@ -489,8 +519,22 @@ def _page_notebook() -> None:
             st.session_state["chat_history"].append({"role": "assistant", "content": answer})
             st.rerun()
 
+    # ── Right: Entity chips + Notes ────────────────────────────────
+    entities = summary_data.get("entities", {}) if summary_data else {}
+    with col_studio:
+        st.markdown("**Entities**")
+        for person in entities.get("persons", [])[:10]:
+            name = person if isinstance(person, str) else person.get("name", "")
+            st.markdown(f'<span class="entity-chip">👤 {name}</span>', unsafe_allow_html=True)
+        for org in entities.get("organizations", [])[:10]:
+            name = org if isinstance(org, str) else org.get("name", "")
+            st.markdown(f'<span class="entity-chip">🏢 {name}</span>', unsafe_allow_html=True)
+        for kw in entities.get("keywords", [])[:15]:
+            name = kw if isinstance(kw, str) else kw.get("name", "")
+            st.markdown(f'<span class="entity-chip">🔑 {name}</span>', unsafe_allow_html=True)
+
         st.divider()
-        st.subheader("📝 Notes")
+        st.markdown("**Notes**")
         new_note = st.text_area("Save a note", key="note_input", height=80)
         if st.button("Save Note") and new_note.strip():
             st.session_state.setdefault("saved_notes", []).append({
@@ -528,7 +572,7 @@ def _page_summaries() -> None:
         with cols[idx]:
             st.subheader(title)
             text = summaries.get(key, "N/A")
-            st.write(text)
+            st.markdown(f'<div class="source-card">{text}</div>', unsafe_allow_html=True)
             st.download_button(f"Download {title}", text, file_name=f"{key}.txt", mime="text/plain")
 
     chapters = sd.get("chapters", [])
@@ -555,94 +599,90 @@ def _page_podcast() -> None:
     state = st.session_state.get("pipeline_state")
     job_id = st.session_state.get("active_job_id")
 
-    # Source material
-    st.subheader("1. Source Material")
-    src_opt = st.radio(
-        "Source", ["Full transcript", "TL;DR", "Executive Summary", "Deep Dive", "Custom text"],
-        horizontal=True, key="pod_source",
-    )
-    source_text = ""
-    if src_opt == "Custom text":
-        source_text = st.text_area("Paste text", height=200)
-    elif state == "done" and job_id:
-        results = _load_results(job_id)
-        if src_opt == "Full transcript":
-            t_data = results.get("transcript", {})
-            source_text = t_data.get("full_text", t_data.get("raw_full_text", ""))
-        else:
-            tier_map = {"TL;DR": "tldr", "Executive Summary": "executive", "Deep Dive": "deep_dive"}
-            sd = results.get("summary_outputs", {}) or {}
-            source_text = sd.get("summaries", {}).get(tier_map.get(src_opt, ""), "")
+    tab1, tab2, tab3, tab4 = st.tabs(["Source", "Episode", "Speakers", "Generate"])
 
-    # Episode config
-    st.subheader("2. Episode Config")
-    c1, c2 = st.columns(2)
-    with c1:
-        tone = st.selectbox("Tone", ["casual", "academic", "debate", "interview"])
-    with c2:
-        length = st.selectbox("Length", ["short", "medium", "long"],
-                              format_func=lambda x: {"short": "~3m", "medium": "~7m", "long": "~15m"}[x])
+    with tab1:
+        src_opt = st.radio(
+            "Source", ["Full transcript", "TL;DR", "Executive Summary", "Deep Dive", "Custom text"],
+            horizontal=True, key="pod_source",
+        )
+        source_text = ""
+        if src_opt == "Custom text":
+            source_text = st.text_area("Paste text", height=200)
+        elif state == "done" and job_id:
+            results = _load_results(job_id)
+            if src_opt == "Full transcript":
+                t_data = results.get("transcript", {})
+                source_text = t_data.get("full_text", t_data.get("raw_full_text", ""))
+            else:
+                tier_map = {"TL;DR": "tldr", "Executive Summary": "executive", "Deep Dive": "deep_dive"}
+                sd = results.get("summary_outputs", {}) or {}
+                source_text = sd.get("summaries", {}).get(tier_map.get(src_opt, ""), "")
 
-    # Speakers
-    st.subheader("3. Speakers")
-    sc1, sc2 = st.columns(2)
-    with sc1:
-        st.markdown("**Speaker A**")
-        a_name = st.text_input("Name", "Alex", key="a_name")
-        a_desc = st.text_input("Description", "Curious interviewer", key="a_desc")
-        a_tts = st.selectbox("TTS", ["kokoro", "dia", "bark", "xtts_v2", "f5_tts"], key="a_tts")
-        if a_tts == "kokoro":
-            a_voice: str | None = st.selectbox("Voice", ["af_heart", "af_nicole", "af_bella", "am_michael", "am_adam"], key="a_voice")
-        else:
-            vs = st.text_input("Voice preset", key="a_voice_v")
-            a_voice = vs if vs.strip() else None
+    with tab2:
+        c1, c2 = st.columns(2)
+        with c1:
+            tone = st.selectbox("Tone", ["casual", "academic", "debate", "interview"])
+        with c2:
+            length = st.selectbox("Length", ["short", "medium", "long"],
+                                  format_func=lambda x: {"short": "~3m", "medium": "~7m", "long": "~15m"}[x])
 
-    with sc2:
-        st.markdown("**Speaker B**")
-        b_name = st.text_input("Name", "Sam", key="b_name")
-        b_desc = st.text_input("Description", "Domain expert", key="b_desc")
-        b_tts = st.selectbox("TTS", ["kokoro", "dia", "bark", "xtts_v2", "f5_tts"], key="b_tts", index=0)
-        if b_tts == "kokoro":
-            b_voice: str | None = st.selectbox("Voice", ["am_michael", "am_adam", "af_heart", "af_nicole"], key="b_voice")
-        else:
-            vs2 = st.text_input("Voice preset", key="b_voice_v")
-            b_voice = vs2 if vs2.strip() else None
+    with tab3:
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            st.markdown("**Speaker A**")
+            a_name = st.text_input("Name", "Alex", key="a_name")
+            a_desc = st.text_input("Description", "Curious interviewer", key="a_desc")
+            a_tts = st.selectbox("TTS", ["kokoro", "dia", "bark", "xtts_v2", "f5_tts"], key="a_tts")
+            if a_tts == "kokoro":
+                a_voice: str | None = st.selectbox("Voice", ["af_heart", "af_nicole", "af_bella", "am_michael", "am_adam"], key="a_voice")
+            else:
+                vs = st.text_input("Voice preset", key="a_voice_v")
+                a_voice = vs if vs.strip() else None
+        with sc2:
+            st.markdown("**Speaker B**")
+            b_name = st.text_input("Name", "Sam", key="b_name")
+            b_desc = st.text_input("Description", "Domain expert", key="b_desc")
+            b_tts = st.selectbox("TTS", ["kokoro", "dia", "bark", "xtts_v2", "f5_tts"], key="b_tts", index=0)
+            if b_tts == "kokoro":
+                b_voice: str | None = st.selectbox("Voice", ["am_michael", "am_adam", "af_heart", "af_nicole"], key="b_voice")
+            else:
+                vs2 = st.text_input("Voice preset", key="b_voice_v")
+                b_voice = vs2 if vs2.strip() else None
 
     # VRAM estimate
     vram_a = {"kokoro": 2, "dia": 10, "bark": 8, "xtts_v2": 6, "f5_tts": 4}.get(a_tts, 6)
     vram_b = {"kokoro": 2, "dia": 10, "bark": 8, "xtts_v2": 6, "f5_tts": 4}.get(b_tts, 6)
-    # Dia+Dia uses single model, not both loaded
     total_vram = vram_a + vram_b if a_tts != b_tts or a_tts != "dia" else vram_a
     vram_label = "🟢" if total_vram <= 14 else "🟠" if total_vram <= 16 else "🔴"
     st.info(f"{vram_label} Est. VRAM: **{total_vram:.0f} GB** (T4 = ~16 GB)")
 
-    # Generate
-    st.subheader("4. Generate")
-    bc1, bc2 = st.columns(2)
-    with bc1:
-        preview_clicked = st.button("📝 Script Preview", disabled=not source_text.strip())
-    with bc2:
-        generate_clicked = st.button("🎙️ Generate Podcast", type="primary", disabled=not source_text.strip())
+    with tab4:
+        bc1, bc2 = st.columns(2)
+        with bc1:
+            preview_clicked = st.button("📝 Script Preview", disabled=not source_text.strip())
+        with bc2:
+            generate_clicked = st.button("🎙️ Generate Podcast", type="primary", disabled=not source_text.strip())
 
-    if preview_clicked:
-        st.info("Script preview requires Colab runtime. Source text: " + str(len(source_text.split())) + " words.")
+        if preview_clicked:
+            st.info("Script preview requires Colab runtime. Source text: " + str(len(source_text.split())) + " words.")
 
-    if generate_clicked:
-        job_id = db.generate_job_id()
-        pod_job = {
-            "job_id": job_id,
-            "source_text": source_text,
-            "speaker_a": {"name": a_name, "description": a_desc, "tts_model": a_tts, "voice": a_voice},
-            "speaker_b": {"name": b_name, "description": b_desc, "tts_model": b_tts, "voice": b_voice},
-            "config": {"tone": tone, "length": length},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        db.write_json(pod_job, config.DRIVE_INPUT_JOBS, f"{job_id}.json")
-        st.session_state["active_job_id"] = job_id
-        st.session_state["active_job_type"] = "podcast"
-        st.session_state["pipeline_state"] = "processing"
-        st.success(f"Podcast job `{job_id}` submitted!")
-        st.rerun()
+        if generate_clicked:
+            job_id = db.generate_job_id()
+            pod_job = {
+                "job_id": job_id,
+                "source_text": source_text,
+                "speaker_a": {"name": a_name, "description": a_desc, "tts_model": a_tts, "voice": a_voice},
+                "speaker_b": {"name": b_name, "description": b_desc, "tts_model": b_tts, "voice": b_voice},
+                "config": {"tone": tone, "length": length},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            db.write_json(pod_job, config.DRIVE_INPUT_JOBS, f"{job_id}.json")
+            st.session_state["active_job_id"] = job_id
+            st.session_state["active_job_type"] = "podcast"
+            st.session_state["pipeline_state"] = "processing"
+            st.success(f"Podcast job `{job_id}` submitted!")
+            st.rerun()
 
     # Poll for podcast MP3
     if state == "done" and st.session_state.get("active_job_type") == "podcast":
@@ -754,11 +794,11 @@ def _page_accuracy() -> None:
 # ═══════════════════════════════════════════════════════════════
 
 _PAGE_KEYS: dict[str, str] = {
-    "📤 Upload & Transcribe": "upload",
-    "📝 Notebook Workspace": "notebook",
-    "📊 Summaries": "summaries",
-    "🎧 Podcast Studio": "podcast",
-    "🔍 Accuracy Check": "accuracy",
+    "Upload": "upload",
+    "Notebook": "notebook",
+    "Summaries": "summaries",
+    "Podcast": "podcast",
+    "Accuracy Check": "accuracy",
 }
 _PAGE_FUNCS: dict[str, Any] = {
     "upload": _page_upload,
