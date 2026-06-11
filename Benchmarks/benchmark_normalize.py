@@ -26,6 +26,7 @@ from pathlib import Path
 import jiwer
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
 
 from openai import OpenAI
 from evaluate import _jiwer_transform, normalize_for_eval
@@ -246,7 +247,7 @@ def evaluate_variant(name: str, hyp: str, ref: str, raw: str) -> dict:
 
 if __name__ == "__main__":
     raw_path = sys.argv[1] if len(sys.argv) > 1 else "results/transcript.txt"
-    gt_path  = sys.argv[2] if len(sys.argv) > 2 else "sample_podcasts/bilingual_long_gt.json"
+    gt_path  = sys.argv[2] if len(sys.argv) > 2 else "Samples/sample_podcasts/bilingual_long_gt.json"
 
     raw_text = load_raw_transcript(raw_path)
     gt = load_ground_truth(gt_path)
@@ -318,7 +319,7 @@ if __name__ == "__main__":
         print(f"  {e:30s} |{marks}")
 
     # Save
-    out_path = Path(__file__).parent / "results" / "benchmark_normalize.json"
+    out_path = Path(__file__).parent.parent / "Results" / "benchmark_normalize.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)

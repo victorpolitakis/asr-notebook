@@ -181,7 +181,7 @@ def run_pipeline(audio_path: str) -> bool:
     # -------------------------------------------------------------
     # Save Outputs
     # -------------------------------------------------------------
-    results_dir = Path(__file__).parent / "results"
+    results_dir = Path(__file__).parent.parent / "Results"
     results_dir.mkdir(parents=True, exist_ok=True)
     output_path = results_dir / "summary_outputs.json"
     

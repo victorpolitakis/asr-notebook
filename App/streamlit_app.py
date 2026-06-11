@@ -4,7 +4,7 @@ streamlit_app.py — AI Podcast Studio  (ECE22073)
 Multi-page Streamlit app for the multilingual podcast pipeline.
 All ML compute runs on Colab — this app is UI + Google Drive Bridge only.
 
-Run:  cd Politakis && streamlit run streamlit_app.py
+Run:  cd App && streamlit run streamlit_app.py
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ import pandas as pd
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
-# Ensure Politakis/ is on path for local imports
-sys.path.insert(0, str(Path(__file__).parent.resolve()))
+# Ensure Pipeline/ is on path for local imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
 
 import config
 import drive_bridge as db
@@ -137,7 +137,7 @@ def _sidebar() -> None:
             st.sidebar.info("`credentials.json` found — click below to connect.")
         else:
             st.sidebar.warning(
-                "Place `credentials.json` in `Politakis/` and restart.\n\n"
+                "Place `credentials.json` in `App/` and restart.\n\n"
                 "Follow: Google Cloud Console → APIs & Services → Credentials → "
                 "Create OAuth Client ID (Desktop)"
             )
@@ -226,12 +226,12 @@ def _page_upload() -> None:
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        uploaded = st.file_uploader("Choose a WAV file", type=["wav"], key="wav_uploader")
+        uploaded = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"], key="wav_uploader")
 
         _cur_state = st.session_state.get("pipeline_state", "idle")
         if uploaded and _cur_state in ("idle", "done", "error") and st.button("🚀 Transcribe", type="primary"):
             if not st.session_state.get("drive_connected"):
-                st.error("Drive not connected. Check credentials.json in Politakis/")
+                st.error("Drive not connected. Check credentials.json in App/")
                 return
 
             job_id = db.generate_job_id()

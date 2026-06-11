@@ -33,9 +33,9 @@ def generate_bilingual_audio():
     combined = combined.set_frame_rate(16000).set_channels(1)
     
     # Save to the sample_podcasts folder
-    os.makedirs("Politakis/sample_podcasts", exist_ok=True)
-    combined.export("Politakis/sample_podcasts/bilingual_test.wav", format="wav")
-    print("Exported successfully to Politakis/sample_podcasts/bilingual_test.wav!")
+    os.makedirs("Samples/sample_podcasts", exist_ok=True)
+    combined.export("Samples/sample_podcasts/bilingual_test.wav", format="wav")
+    print("Exported successfully to Samples/sample_podcasts/bilingual_test.wav!")
 
     # Cleanup temporary files
     for f in ["temp1.mp3", "temp2.mp3", "temp3.mp3", "temp4.mp3"]:

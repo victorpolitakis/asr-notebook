@@ -26,6 +26,7 @@ import jiwer
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
 
 from evaluate import _jiwer_transform, normalize_for_eval, apply_transcript_normalization
 
@@ -195,14 +196,14 @@ def print_results(r: dict):
 
 
 if __name__ == "__main__":
-    audio = sys.argv[1] if len(sys.argv) > 1 else "sample_podcasts/bilingual_benchmark.wav"
-    gt_file = sys.argv[2] if len(sys.argv) > 2 else "sample_podcasts/bilingual_benchmark_gt.json"
+    audio = sys.argv[1] if len(sys.argv) > 1 else "Samples/sample_podcasts/bilingual_benchmark.wav"
+    gt_file = sys.argv[2] if len(sys.argv) > 2 else "Samples/sample_podcasts/bilingual_benchmark_gt.json"
     normalize = "--normalize" in sys.argv
 
     result = run_benchmark(audio, gt_file, normalize=normalize)
     print_results(result)
 
-    out_dir = Path(__file__).parent / "results"
+    out_dir = Path(__file__).parent.parent / "Results"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "benchmark_canary.json"
     with open(out_path, "w") as f:

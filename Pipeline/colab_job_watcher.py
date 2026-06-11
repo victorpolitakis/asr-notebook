@@ -111,7 +111,7 @@ def _handle_asr_job(file_info: dict) -> None:
         )
 
         # Upload results from Politakis/results/ to Drive
-        results_dir = Path(__file__).parent / "results"
+        results_dir = Path(__file__).parent.parent / "Results"
         job_output = f"{config.DRIVE_OUTPUT}/{job_id}"
         db.get_or_create_folder(job_output)
 
@@ -256,7 +256,7 @@ def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
         db.write_status(job_id, _make_status(job_id, "asr", "normalization", progress_pct=0.8, eta_seconds=60))
 
         # Upload results via Drive API (same folder db.write_status created)
-        results_dir = Path(__file__).parent / "results"
+        results_dir = Path(__file__).parent.parent / "Results"
         job_output = f"{config.DRIVE_OUTPUT}/{job_id}"
 
         for result_file in ("transcript.json", "transcript.txt",
@@ -346,7 +346,7 @@ def main_loop() -> None:
             # ── Check for ASR jobs (WAV files in input/) via Drive API ──
             for file_info in db.find_new_input_files():
                 fname = file_info["name"]
-                if not fname.lower().endswith(".wav"):
+                if not (fname.lower().endswith(".wav") or fname.lower().endswith(".mp3") or fname.lower().endswith(".m4a")):
                     continue
                 if fname in processed_names:
                     continue

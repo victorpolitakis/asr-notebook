@@ -24,6 +24,7 @@ import numpy as np
 import jiwer
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
 
 from faster_whisper import WhisperModel
 from audio_processor import process_audio_file
@@ -148,14 +149,14 @@ def print_results(r: dict, label: str):
 
 
 if __name__ == "__main__":
-    audio = sys.argv[1] if len(sys.argv) > 1 else "sample_podcasts/bilingual_benchmark.wav"
-    gt_file = sys.argv[2] if len(sys.argv) > 2 else "sample_podcasts/bilingual_benchmark_gt.json"
+    audio = sys.argv[1] if len(sys.argv) > 1 else "Samples/sample_podcasts/bilingual_benchmark.wav"
+    gt_file = sys.argv[2] if len(sys.argv) > 2 else "Samples/sample_podcasts/bilingual_benchmark_gt.json"
     normalize = "--normalize" in sys.argv
 
     result = benchmark_language_locking(audio, gt_file, normalize=normalize)
     print_results(result, "Experiment C — Language Locking (threshold=0.90)")
 
-    out_path = Path(__file__).parent / "results" / "benchmark_lang_lock.json"
+    out_path = Path(__file__).parent.parent / "Results" / "benchmark_lang_lock.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)

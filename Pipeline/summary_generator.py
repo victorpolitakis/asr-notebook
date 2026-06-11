@@ -89,7 +89,7 @@ LLM_MAX_TOKENS_QA: int      = 1024
 LLM_TEMPERATURE: float      = 0.3   # Slight creativity for readable prose
 
 # Output file path — created relative to CWD; Streamlit CWD is project root
-RESULTS_DIR: Path       = Path(__file__).parent / "results"
+RESULTS_DIR: Path       = Path(__file__).parent.parent / "Results"
 SUMMARY_OUTPUT_FILE: Path = RESULTS_DIR / "summary_outputs.json"
 
 

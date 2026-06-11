@@ -15,9 +15,10 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
 
 # Create a tiny bilingual test clip (English + Greek)
-TEST_AUDIO_PATH = Path(__file__).parent / "sample_podcasts" / "bilingual_benchmark.wav"
+TEST_AUDIO_PATH = Path(__file__).parent.parent / "Samples" / "sample_podcasts" / "bilingual_benchmark.wav"
 
 RESULTS = {}
 

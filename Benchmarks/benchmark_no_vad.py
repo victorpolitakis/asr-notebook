@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
 
 try:
     from faster_whisper import WhisperModel
@@ -120,15 +121,15 @@ def print_results(result: dict, label: str):
 
 if __name__ == "__main__":
     # Default to bilingual_benchmark.wav (180s clip)
-    audio = sys.argv[1] if len(sys.argv) > 1 else "sample_podcasts/bilingual_benchmark.wav"
-    gt_file = sys.argv[2] if len(sys.argv) > 2 else "sample_podcasts/bilingual_benchmark_gt.json"
+    audio = sys.argv[1] if len(sys.argv) > 1 else "Samples/sample_podcasts/bilingual_benchmark.wav"
+    gt_file = sys.argv[2] if len(sys.argv) > 2 else "Samples/sample_podcasts/bilingual_benchmark_gt.json"
     normalize = "--normalize" in sys.argv
 
     result = run_benchmark(audio, gt_file, normalize=normalize)
     print_results(result, "Experiment B — No VAD / No Chunking / No Pyannote")
 
     # Save to JSON
-    out_path = Path(__file__).parent / "results" / "benchmark_no_vad.json"
+    out_path = Path(__file__).parent.parent / "Results" / "benchmark_no_vad.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)

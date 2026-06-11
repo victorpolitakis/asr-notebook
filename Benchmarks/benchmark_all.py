@@ -27,6 +27,7 @@ import jiwer
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
 
 # Auto-load OPENAI_API_KEY from: 1) env, 2) .env file, 3) Colab secrets
 if not os.environ.get("OPENAI_API_KEY"):
@@ -262,8 +263,8 @@ def _evaluate(hyp_raw: str, ref: str, runtime: float, model: str, backend: str) 
 # ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    audio = sys.argv[1] if len(sys.argv) > 1 else "sample_podcasts/bilingual_benchmark.wav"
-    gt_path = sys.argv[2] if len(sys.argv) > 2 else "sample_podcasts/bilingual_benchmark_gt.json"
+    audio = sys.argv[1] if len(sys.argv) > 1 else "Samples/sample_podcasts/bilingual_benchmark.wav"
+    gt_path = sys.argv[2] if len(sys.argv) > 2 else "Samples/sample_podcasts/bilingual_benchmark_gt.json"
     normalize = "--normalize" in sys.argv
 
     with open(gt_path) as f:
@@ -358,7 +359,7 @@ if __name__ == "__main__":
         print()
 
     # ── Save ─────────────────────────────────────────────────────────────
-    out_dir = Path(__file__).parent / "results"
+    out_dir = Path(__file__).parent.parent / "Results"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / "benchmark_all.json"
     payload = {"raw": list(results_models.values()), "normalized": list(results_norm.values()) if results_norm else []}

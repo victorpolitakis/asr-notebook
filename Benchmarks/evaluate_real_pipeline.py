@@ -14,6 +14,7 @@ from pathlib import Path
 
 # Configure paths and imports
 sys.path.insert(0, str(Path(__file__).parent.resolve()))
+sys.path.insert(0, str(Path(__file__).parent.parent / "Pipeline"))
 
 try:
     import evaluate as ev
@@ -39,7 +40,7 @@ def run_real_evaluation() -> bool:
     logger.info("=" * 60)
 
     # 1. Load real pipeline outputs
-    results_dir = Path(__file__).parent / "results"
+    results_dir = Path(__file__).parent.parent / "Results"
     summary_path = results_dir / "summary_outputs.json"
     transcript_path = results_dir / "transcript.json"
 
@@ -72,7 +73,7 @@ def run_real_evaluation() -> bool:
     # 3. Locate ground truth — prefer a *_gt.json matched to the source audio
     source_file = Path(transcript_data.get("source_file", ""))
     stem = source_file.stem  # e.g. "bilingual_long"
-    sample_dir = Path(__file__).parent / "sample_podcasts"
+    sample_dir = Path(__file__).parent.parent / "Samples" / "sample_podcasts"
     candidate_gt = sample_dir / f"{stem}_gt.json"
 
     if candidate_gt.exists():

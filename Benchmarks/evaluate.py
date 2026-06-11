@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-RESULTS_DIR = Path(__file__).parent / "results"
+RESULTS_DIR = Path(__file__).parent.parent / "Results"
 QUALITY_METRICS_FILE      = RESULTS_DIR / "quality_metrics.json"
 PROCESSING_TIME_FILE      = RESULTS_DIR / "processing_time_analysis.json"
 TRANSCRIPTION_SAMPLES_FILE = RESULTS_DIR / "transcription_samples.txt"
