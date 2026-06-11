@@ -191,7 +191,7 @@ def _sidebar() -> None:
     st.sidebar.divider()
     page = st.sidebar.radio(
         "Navigation",
-        ["📤 Upload & Transcribe", "📝 Notebook Workspace", "📊 Summaries", "🎧 Podcast Studio"],
+        ["📤 Upload & Transcribe", "📝 Notebook Workspace", "📊 Summaries", "🎧 Podcast Studio", "🔍 Accuracy Check"],
         index=0,
     )
     st.session_state["_current_page"] = page
@@ -573,6 +573,85 @@ def _page_podcast() -> None:
             st.info(f"Comparison would run sequentially on Colab ({len(compare_models)} models). Requires Colab runtime.")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Page: Accuracy Check
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _page_accuracy() -> None:
+    st.markdown("## 🔍 Accuracy Check")
+    st.caption("Compare pipeline output against a reference transcript.")
+
+    # ── Get hypothesis text ──────────────────────────────────────────
+    hyp = ""
+    tr = st.session_state.get("transcript") or {}
+    norm = tr.get("normalized_full_text", "") or tr.get("full_text", "")
+    if norm and norm.strip():
+        hyp = norm
+        st.caption("Using normalized transcript from current job.")
+    else:
+        up_hyp = st.file_uploader("Pipeline output (.txt)", type=["txt"], key="acc_hyp")
+        if up_hyp:
+            hyp = up_hyp.read().decode("utf-8", errors="replace")
+
+    # ── Get reference text ───────────────────────────────────────────
+    up_ref = st.file_uploader("Reference / Ground Truth (.txt)", type=["txt"], key="acc_ref")
+    ref = ""
+    if up_ref:
+        ref = up_ref.read().decode("utf-8", errors="replace")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.text_area("Hypothesis (pipeline output)", value=hyp[:2000] + ("…" if len(hyp) > 2000 else ""),
+                     height=200, key="acc_hyp_area", disabled=True)
+    with col2:
+        st.text_area("Reference (ground truth)", value=ref[:2000] + ("…" if len(ref) > 2000 else ""),
+                     height=200, key="acc_ref_area", disabled=True)
+
+    if st.button("Compare", disabled=not (hyp.strip() and ref.strip())):
+        try:
+            import jiwer
+        except ImportError:
+            st.error("Run: pip install jiwer rouge-score")
+            return
+        try:
+            from rouge_score import rouge_scorer
+        except ImportError:
+            st.error("Run: pip install rouge-score")
+            return
+
+        # ── Metrics ──────────────────────────────────────────────────
+        wer_val = round(jiwer.wer(ref, hyp), 4)
+        scorer = rouge_scorer.RougeScorer(["rouge1", "rougeL"], use_stemmer=True)
+        rouge = scorer.score(ref, hyp)
+        r1 = round(rouge["rouge1"].fmeasure, 4)
+        rl = round(rouge["rougeL"].fmeasure, 4)
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("WER", f"{wer_val:.4f}", delta=f"≤0.08" if wer_val <= 0.08 else ">0.08", delta_color="off")
+        m2.metric("ROUGE-1 F1", f"{r1:.4f}")
+        m3.metric("ROUGE-L F1", f"{rl:.4f}")
+
+        # ── Diff view ────────────────────────────────────────────────
+        import difflib
+        diff = list(difflib.ndiff(ref.split(), hyp.split()))
+        html_parts = []
+        for token in diff:
+            if token.startswith("- "):
+                html_parts.append(f'<span style="color:#f85149;text-decoration:line-through">{token[2:]}</span>')
+            elif token.startswith("+ "):
+                html_parts.append(f'<span style="color:#f85149">{token[2:]}</span>')
+            elif token.startswith("? "):
+                pass
+            else:
+                html_parts.append(token[2:] if token.startswith("  ") else token)
+        html = " ".join(html_parts)
+        with st.expander("🔬 Word-Level Diff", expanded=True):
+            st.markdown(
+                f'<div style="font-family:monospace;line-height:1.8;max-height:400px;overflow-y:auto;padding:1rem;background:rgba(22,27,34,.9);border:1px solid #30363d;border-radius:8px">{html}</div>',
+                unsafe_allow_html=True,
+            )
+
+
 # ═══════════════════════════════════════════════════════════════
 # Main routing
 # ═══════════════════════════════════════════════════════════════
@@ -582,12 +661,14 @@ _PAGE_KEYS: dict[str, str] = {
     "📝 Notebook Workspace": "notebook",
     "📊 Summaries": "summaries",
     "🎧 Podcast Studio": "podcast",
+    "🔍 Accuracy Check": "accuracy",
 }
 _PAGE_FUNCS: dict[str, Any] = {
     "upload": _page_upload,
     "notebook": _page_notebook,
     "summaries": _page_summaries,
     "podcast": _page_podcast,
+    "accuracy": _page_accuracy,
 }
 
 _poll_job_status()
