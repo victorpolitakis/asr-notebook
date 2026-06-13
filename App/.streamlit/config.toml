@@ -1,0 +1,14 @@
+[theme]
+primaryColor             = "#7aa2f7"
+backgroundColor          = "#0d0d16"
+secondaryBackgroundColor = "#12121e"
+textColor                = "#c0c0d8"
+font                     = "sans serif"
+
+[client]
+toolbarMode      = "viewer"
+showErrorDetails = false
+
+[server]
+enableCORS           = false
+enableXsrfProtection = true

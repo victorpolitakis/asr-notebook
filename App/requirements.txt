@@ -1,47 +1,18 @@
-torch>=2.1.0
-torchaudio>=2.1.0
-numpy>=1.24.0
+# UI + Drive bridge — local machine and Docker
+# ML deps (torch, transformers, faster-whisper, pyannote) run on Colab, not here.
 
-# ── ASR (Speech Recognition) ─────────────────────────────────
-transformers>=4.45.0
-accelerate>=1.0.0
-datasets[audio]>=3.0.0
-
-# ── Audio Processing ─────────────────────────────────────────
-pydub>=0.25.1
-pyannote.audio>=3.1.1
-
-# ── LLM Integration ──────────────────────────────────────────
-openai>=1.30.0
-
-# ── NLP / Evaluation ─────────────────────────────────────────
-rouge-score>=0.1.2
-jiwer>=3.0.0
-
-# ── Resource Monitoring ──────────────────────────────────────
-psutil>=5.9.0
-
-# ── UI ───────────────────────────────────────────────────────
+# ── Streamlit UI ─────────────────────────────────────────────────────────
 streamlit>=1.35.0
-pandas>=2.0.0
 streamlit-autorefresh>=1.0.0
+pandas>=2.0.0
 plotly>=5.0.0
 
-# ── Google Drive Bridge (local) ──────────────────────────────
+# ── Google Drive bridge ───────────────────────────────────────────────────
 google-auth>=2.0.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.0.0
 
-# ── Notebook Workspace (URL + PDF ingestion) ─────────────────
-requests>=2.28.0
-html2text>=2024.2
-pymupdf>=1.23.0
-
-# ── Notebooks ────────────────────────────────────────────────
-jupyter>=1.0.0
-ipykernel>=6.0.0
-matplotlib>=3.7.0
-ipywidgets>=8.0.0
-
-# ── Audio Generation (test only) ─────────────────────────────
-gtts>=2.5.0
+# ── Accuracy metrics (Accuracy Check page) ───────────────────────────────
+rouge-score>=0.1.2
+jiwer>=3.0.0
+sacrebleu>=2.4.0

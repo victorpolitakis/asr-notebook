@@ -1,13 +1,36 @@
 version: "3.9"
 
+# Deploy from GitHub — Docker clones the repo and builds the image.
+# No local clone needed. Run from any directory that has credentials.json + .env.
+#
+# First-time setup:
+#   cp .env.example .env        # add your OPENAI_API_KEY (optional for UI-only use)
+#   touch token.json            # placeholder — overwritten after first OAuth login
+#   docker compose up -d
+#
+# Redeploy after a git push:
+#   docker compose up -d --build
+
 services:
-  streamlit:
-    build: .
+  app:
+    build:
+      context: https://github.com/victoras136/asr-notebook.git
+      dockerfile: App/Dockerfile
+    image: ece22073-app
     ports:
       - "8501:8501"
     volumes:
-      - ../:/app
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-    working_dir: /app/App
-    command: streamlit run streamlit_app.py --server.address 0.0.0.0
+      # Google OAuth credentials — place these files next to this docker-compose.yml
+      # credentials.json  → downloaded from Google Cloud Console (OAuth 2.0 Desktop client)
+      # token.json        → auto-created on first login; pre-create with: touch token.json
+      - ./credentials.json:/repo/App/credentials.json:ro
+      - ./token.json:/repo/App/token.json
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8501/_stcore/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
