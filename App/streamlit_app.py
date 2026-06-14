@@ -35,124 +35,345 @@ import comparison_metrics as cm
 # ══════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
-html, body, [class*="css"] { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
 
-/* Hide Streamlit chrome — NOT the header element (breaks sidebar toggle) */
+/* ═══════════════════════════════════════════════════════════
+   TOKENS — Magnetic Tape Console
+═══════════════════════════════════════════════════════════ */
+:root {
+  --bg:          #070604;
+  --bg2:         #110e09;
+  --bg3:         #1c1609;
+  --border:      #2e2510;
+  --border-hi:   #4a3a18;
+  --amber:       #e8a520;
+  --amber-dim:   #7a5c0a;
+  --amber-glow:  rgba(232,165,32,0.12);
+  --green:       #2ee89b;
+  --red:         #e84a2e;
+  --text:        #d4c4a0;
+  --text-dim:    #7a6d54;
+  --text-faint:  #352c1e;
+  --fn-head:     'Bebas Neue', 'Impact', 'Arial Narrow', sans-serif;
+  --fn-body:     'Courier Prime', 'Courier New', monospace;
+  --fn-mono:     'Share Tech Mono', 'Courier New', monospace;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BASE
+═══════════════════════════════════════════════════════════ */
+html, body, [class*="css"] { font-family: var(--fn-body) !important; }
+
 #MainMenu, footer { visibility: hidden; }
 [data-testid="stStatusWidget"] { visibility: hidden; }
 
-/* App chrome */
-.stApp { background: #0d0d16; }
-[data-testid="stSidebar"] { background: #080810 !important; border-right: 1px solid #181828 !important; }
+/* ═══════════════════════════════════════════════════════════
+   APP BACKGROUND — warm grid
+═══════════════════════════════════════════════════════════ */
+.stApp {
+  background-color: var(--bg) !important;
+  background-image:
+    linear-gradient(rgba(232,165,32,0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232,165,32,0.028) 1px, transparent 1px) !important;
+  background-size: 48px 48px !important;
+}
 
-/* Typography */
-h1, h2, h3 { color: #e0e0f0 !important; font-weight: 300 !important; letter-spacing: -0.02em !important; }
-[data-testid="stMarkdownContainer"] p { color: #a0a0b8; line-height: 1.7; }
+/* ═══════════════════════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════════════════════ */
+[data-testid="stSidebar"] {
+  background: #030201 !important;
+  border-right: 1px solid var(--border) !important;
+}
+[data-testid="stSidebarContent"]::before {
+  content: '';
+  display: block;
+  height: 2px;
+  background: linear-gradient(90deg, var(--amber) 0%, transparent 80%);
+  margin-bottom: 4px;
+}
 
-/* Metric cards */
+/* ═══════════════════════════════════════════════════════════
+   TYPOGRAPHY
+═══════════════════════════════════════════════════════════ */
+h1, h2, h3 {
+  font-family: var(--fn-head) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  line-height: 1.05 !important;
+}
+h2 {
+  font-size: 3rem !important;
+  color: var(--amber) !important;
+  padding-bottom: 12px !important;
+  background-image: linear-gradient(90deg, var(--border-hi) 0%, transparent 55%) !important;
+  background-size: 100% 1px !important;
+  background-repeat: no-repeat !important;
+  background-position: 0 100% !important;
+  margin-bottom: 1.2rem !important;
+}
+h3 {
+  font-size: 1.4rem !important;
+  color: var(--text) !important;
+  letter-spacing: 0.1em !important;
+}
+[data-testid="stMarkdownContainer"] p {
+  font-family: var(--fn-body);
+  color: var(--text-dim);
+  line-height: 1.8;
+}
+[data-testid="stMarkdownContainer"] strong { color: var(--text); }
+[data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] * {
+  font-family: var(--fn-mono) !important;
+  font-size: 10px !important;
+  color: var(--text-faint) !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   METRICS
+═══════════════════════════════════════════════════════════ */
 [data-testid="stMetric"] {
-    background: #12121e; border: 1px solid #1c1c2e;
-    border-radius: 8px; padding: 14px 18px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--amber-dim);
+  border-radius: 2px;
+  padding: 14px 18px;
 }
-[data-testid="stMetricLabel"] { color: #555 !important; font-size: 10px !important; text-transform: uppercase; letter-spacing: 0.08em; }
-[data-testid="stMetricValue"] { color: #dde0f0 !important; font-size: 22px !important; }
-
-/* File uploader */
-[data-testid="stFileUploadDropzone"] {
-    background: #12121e; border: 1px dashed #2a2a40; border-radius: 10px;
+[data-testid="stMetricLabel"] {
+  font-family: var(--fn-mono) !important;
+  color: var(--amber-dim) !important;
+  font-size: 9px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.14em !important;
+}
+[data-testid="stMetricValue"] {
+  font-family: var(--fn-head) !important;
+  color: var(--amber) !important;
+  font-size: 2.2rem !important;
+  letter-spacing: 0.05em !important;
 }
 
-/* Inputs / textareas */
+/* ═══════════════════════════════════════════════════════════
+   BUTTONS
+═══════════════════════════════════════════════════════════ */
+[data-testid="stBaseButton-primary"] {
+  background: var(--amber) !important;
+  color: #070604 !important;
+  border: none !important;
+  border-radius: 2px !important;
+  font-family: var(--fn-mono) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.12em !important;
+  transition: box-shadow 0.2s ease, opacity 0.15s ease !important;
+}
+[data-testid="stBaseButton-primary"]:hover {
+  box-shadow: 0 0 20px rgba(232,165,32,0.55) !important;
+  opacity: 0.9 !important;
+}
+[data-testid="stBaseButton-secondary"] {
+  background: transparent !important;
+  color: var(--text-dim) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 2px !important;
+  font-family: var(--fn-mono) !important;
+  font-size: 11px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  transition: border-color 0.15s, color 0.15s !important;
+}
+[data-testid="stBaseButton-secondary"]:hover {
+  border-color: var(--amber-dim) !important;
+  color: var(--text) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INPUTS / FILE UPLOADER
+═══════════════════════════════════════════════════════════ */
 textarea, input[type="text"] {
-    background: #12121e !important;
-    border: 1px solid #1c1c2e !important;
-    color: #c0c0d8 !important;
-    border-radius: 6px !important;
+  background: var(--bg2) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 2px !important;
+  font-family: var(--fn-body) !important;
 }
 textarea:focus, input:focus {
-    border-color: #7aa2f7 !important;
-    box-shadow: 0 0 0 2px rgba(122,162,247,0.15) !important;
-    outline: none !important;
+  border-color: var(--amber-dim) !important;
+  box-shadow: 0 0 0 1px rgba(232,165,32,0.2) !important;
+  outline: none !important;
+}
+[data-testid="stFileUploadDropzone"] {
+  background: var(--bg2) !important;
+  border: 1px dashed var(--amber-dim) !important;
+  border-radius: 2px !important;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+[data-testid="stFileUploadDropzone"]:hover {
+  border-color: var(--amber) !important;
+  box-shadow: 0 0 28px rgba(232,165,32,0.08) !important;
 }
 
-/* Selectbox / radio */
-[data-baseweb="select"] > div { background: #12121e; border: 1px solid #1c1c2e; border-radius: 6px; }
-[data-baseweb="radio"] label { font-size: 13px; color: #a0a0b8; }
-
-/* Tabs */
+/* ═══════════════════════════════════════════════════════════
+   TABS
+═══════════════════════════════════════════════════════════ */
 [data-baseweb="tab-list"] {
-    background: #12121e; border-radius: 8px; padding: 3px;
-    border: 1px solid #1c1c2e; gap: 2px;
+  background: var(--bg2);
+  border-radius: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  gap: 2px;
 }
-[data-baseweb="tab"] { color: #555; font-size: 12px; border-radius: 6px; padding: 5px 16px; }
-[aria-selected="true"] { background: rgba(122,162,247,0.12) !important; color: #7aa2f7 !important; }
+[data-baseweb="tab"] {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--fn-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-radius: 1px;
+  padding: 5px 16px;
+}
+[aria-selected="true"] {
+  background: rgba(232,165,32,0.1) !important;
+  color: var(--amber) !important;
+}
 
-/* Divider */
-hr { border-color: #181828 !important; margin: 1.2rem 0 !important; }
+/* ═══════════════════════════════════════════════════════════
+   ALERTS / SELECT / RADIO
+═══════════════════════════════════════════════════════════ */
+[data-testid="stAlert"] {
+  border-radius: 2px !important;
+  border-left-width: 2px !important;
+  font-family: var(--fn-body);
+  font-size: 13px;
+  background: var(--bg2) !important;
+}
+[data-testid="stExpander"] {
+  background: var(--bg2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 2px !important;
+}
+[data-baseweb="select"] > div {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--fn-body);
+}
+[data-baseweb="radio"] label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--fn-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
 
-/* Alerts */
-[data-testid="stAlert"] { border-radius: 8px; border-left-width: 3px; }
+/* ═══════════════════════════════════════════════════════════
+   PROGRESS / DATAFRAME / DIVIDER
+═══════════════════════════════════════════════════════════ */
+[data-testid="stProgress"] > div > div {
+  background: linear-gradient(90deg, var(--amber-dim), var(--amber)) !important;
+}
+[data-testid="stDataFrame"] { font-size: 12px; font-family: var(--fn-mono); }
+hr {
+  border: none !important;
+  border-top: 1px solid var(--border) !important;
+  margin: 1.4rem 0 !important;
+}
 
-/* Progress */
-[data-testid="stProgress"] > div > div { background: #7aa2f7; }
+/* ═══════════════════════════════════════════════════════════
+   SCROLLBARS
+═══════════════════════════════════════════════════════════ */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }
 
-/* Dataframe */
-[data-testid="stDataFrame"] { font-size: 12px; }
+/* ═══════════════════════════════════════════════════════════
+   ANIMATIONS
+═══════════════════════════════════════════════════════════ */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+[data-testid="stMainBlockContainer"] {
+  animation: fade-up 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes amber-pulse {
+  0%, 100% { box-shadow: 0 0 0   0   rgba(232,165,32,0); }
+  50%       { box-shadow: 0 0 24px 2px rgba(232,165,32,0.22); }
+}
 
-/* ── Custom HTML blocks used in this app ── */
+/* ═══════════════════════════════════════════════════════════
+   CUSTOM COMPONENTS
+═══════════════════════════════════════════════════════════ */
 .seg {
-    background: #12121e;
-    border-left: 3px solid #2a2a48;
-    border-radius: 0 6px 6px 0;
-    padding: 10px 14px;
-    margin-bottom: 4px;
-    font-size: 13px;
-    line-height: 1.7;
-    color: #b0b0cc;
+  background: var(--bg2);
+  border-left: 2px solid var(--border-hi);
+  border-radius: 0 2px 2px 0;
+  padding: 10px 14px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-dim);
+  font-family: var(--fn-body);
 }
+.seg-a { border-left-color: var(--amber-dim); }
+.seg-b { border-left-color: #2a5a3a; }
 .seg .lbl {
-    display: block;
-    font-family: ui-monospace, Menlo, 'Courier New', monospace;
-    font-size: 9px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: #444;
-    margin-bottom: 5px;
+  display: block;
+  font-family: var(--fn-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--amber-dim);
+  margin-bottom: 5px;
 }
 .chip {
-    display: inline-block;
-    background: #12121e;
-    border: 1px solid #1c1c2e;
-    border-radius: 20px;
-    padding: 2px 10px;
-    margin: 2px 4px 2px 0;
-    font-size: 11px;
-    color: #888;
-    font-family: ui-monospace, Menlo, 'Courier New', monospace;
+  display: inline-block;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 1px;
+  padding: 2px 8px;
+  margin: 2px 3px 2px 0;
+  font-size: 10px;
+  color: var(--text-faint);
+  font-family: var(--fn-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 .jcard {
-    background: #12121e;
-    border: 1px solid #1c1c2e;
-    border-radius: 10px;
-    padding: 16px 20px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-top: 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+}
+.jcard.is-processing {
+  border-color: var(--amber-dim);
+  animation: amber-pulse 2.4s ease-in-out infinite;
 }
 .diff-view {
-    font-family: ui-monospace, Menlo, 'Courier New', monospace;
-    font-size: 12px;
-    line-height: 2;
-    max-height: 420px;
-    overflow-y: auto;
-    padding: 14px;
-    background: #080810;
-    border: 1px solid #1c1c2e;
-    border-radius: 8px;
-    white-space: pre-wrap;
-    word-break: break-word;
+  font-family: var(--fn-mono);
+  font-size: 12px;
+  line-height: 2;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -264,18 +485,21 @@ if not st.session_state.active_job_id:
 # Sidebar
 # ══════════════════════════════════════════════════════════════════════════
 
-def _dot(color: str, size: int = 8) -> str:
+def _dot(color: str, size: int = 6) -> str:
     return (f'<span style="display:inline-block;width:{size}px;height:{size}px;'
-            f'border-radius:50%;background:{color};margin-right:6px;vertical-align:middle"></span>')
+            f'border-radius:50%;background:{color};margin-right:7px;vertical-align:middle;'
+            f'box-shadow:0 0 5px {color}90"></span>')
 
 
 with st.sidebar:
     # ── Brand ──
     st.markdown(
-        '<div style="padding:6px 0 22px">'
-        '<div style="font-size:15px;font-weight:500;color:#dde0f0">🎙️ ECE22073</div>'
-        '<div style="font-size:10px;color:#3a3a52;font-family:ui-monospace,Menlo,monospace;margin-top:3px">'
-        'AI Audio Pipeline</div></div>',
+        '<div style="padding:10px 0 20px">'
+        '<div style="font-family:\'Bebas Neue\',\'Impact\',monospace;font-size:26px;'
+        'letter-spacing:0.18em;color:#e8a520;line-height:1">ECE22073</div>'
+        '<div style="font-family:\'Share Tech Mono\',monospace;font-size:9px;color:#352c1e;'
+        'letter-spacing:0.22em;text-transform:uppercase;margin-top:3px">AI Audio Pipeline</div>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -297,8 +521,10 @@ with st.sidebar:
     # ── Drive connection ──
     _drive_ok = st.session_state.drive_connected
     st.markdown(
-        f'{_dot("#3dde8f" if _drive_ok else "#ff5a5a")}'
-        f'<span style="font-size:12px;color:#666">{"Drive connected" if _drive_ok else "Drive not connected"}</span>',
+        f'{_dot("#2ee89b" if _drive_ok else "#e84a2e")}'
+        f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:#7a6d54;'
+        f'text-transform:uppercase;letter-spacing:0.08em">'
+        f'{"Drive connected" if _drive_ok else "Drive not connected"}</span>',
         unsafe_allow_html=True,
     )
 
@@ -319,14 +545,15 @@ with st.sidebar:
     # ── Pipeline state ──
     _ps = st.session_state.pipeline_state
     _ps_color = {
-        "idle": "#333", "uploading": "#ddb83d", "processing": "#ddb83d",
-        "done": "#3dde8f", "error": "#ff5a5a",
-    }.get(_ps, "#333")
+        "idle": "#352c1e", "uploading": "#e8a520", "processing": "#e8a520",
+        "done": "#2ee89b", "error": "#e84a2e",
+    }.get(_ps, "#352c1e")
 
     st.markdown(
         f'<div style="margin-top:10px">'
         f'{_dot(_ps_color)}'
-        f'<span style="font-size:12px;color:#555">Pipeline: {_ps}</span></div>',
+        f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:#7a6d54;'
+        f'text-transform:uppercase;letter-spacing:0.08em">Pipeline: {_ps}</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -457,16 +684,22 @@ def _upload_and_submit(f: Any) -> None:
 
 
 def _render_job_card(jid: str, fname: str, ps: str) -> None:
-    color = {"processing": "#ddb83d", "done": "#3dde8f", "error": "#ff5a5a",
-             "uploading": "#ddb83d"}.get(ps, "#666")
+    color  = {"processing": "#e8a520", "done": "#2ee89b", "error": "#e84a2e",
+              "uploading": "#e8a520"}.get(ps, "#352c1e")
+    symbol = {"processing": "▶", "done": "◼", "error": "◻", "uploading": "▶"}.get(ps, "◈")
+    extra  = "is-processing" if ps in ("processing", "uploading") else ""
     st.markdown(
-        f'<div class="jcard">'
-        f'<span style="font-size:26px">🎙️</span>'
-        f'<div style="flex:1">'
-        f'<div style="color:#dde0f0;font-weight:500;font-size:14px">{fname}</div>'
-        f'<div style="color:#444;font-size:11px;font-family:ui-monospace,Menlo,monospace;margin-top:3px">job: {jid}</div>'
+        f'<div class="jcard {extra}">'
+        f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:20px;'
+        f'color:#7a5c0a;min-width:22px;text-align:center">{symbol}</div>'
+        f'<div style="flex:1;min-width:0">'
+        f'<div style="color:#d4c4a0;font-family:\'Courier Prime\',monospace;font-size:14px;'
+        f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{fname}</div>'
+        f'<div style="color:#352c1e;font-size:9px;font-family:\'Share Tech Mono\',monospace;'
+        f'margin-top:4px;letter-spacing:0.12em;text-transform:uppercase">JOB / {jid}</div>'
         f'</div>'
-        f'<div style="color:{color};font-size:12px;font-family:ui-monospace,Menlo,monospace">{ps}</div>'
+        f'<div style="color:{color};font-size:9px;font-family:\'Share Tech Mono\',monospace;'
+        f'letter-spacing:0.18em;text-transform:uppercase;white-space:nowrap">{ps}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -553,9 +786,9 @@ def _results_transcript(t: dict) -> None:
         return
 
     for seg in segs:
-        border = "#7aa2f7" if "A" in seg["speaker"] else "#9ece6a"
+        css_cls = "seg-a" if "A" in seg["speaker"] else "seg-b"
         st.markdown(
-            f'<div class="seg" style="border-left-color:{border}">'
+            f'<div class="seg {css_cls}">'
             f'<span class="lbl">{seg["speaker"]} · {_fmt_time(seg["start"])}</span>'
             f'{seg["text"]}</div>',
             unsafe_allow_html=True,
@@ -746,20 +979,24 @@ def _page_history() -> None:
         except Exception:
             ts = ts_raw[:19] if ts_raw else "—"
 
-        color = {"done": "#3dde8f", "error": "#ff5a5a"}.get(stage, "#ddb83d")
-        icon  = {"done": "✅", "error": "❌"}.get(stage, "⏳")
+        color  = {"done": "#2ee89b", "error": "#e84a2e"}.get(stage, "#e8a520")
+        symbol = {"done": "◼", "error": "◻"}.get(stage, "▶")
 
         fname_raw = item.get("filename", "")
         label     = fname_raw if fname_raw else f"job: {jid}"
-        sublabel  = f"job: {jid} · {ts}" if fname_raw else ts
+        sublabel  = f"JOB/{jid} · {ts}" if fname_raw else ts
         st.markdown(
             f'<div class="jcard" style="margin-top:8px">'
-            f'<span style="font-size:22px">{icon}</span>'
+            f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:16px;'
+            f'color:#7a5c0a;min-width:18px;text-align:center">{symbol}</div>'
             f'<div style="flex:1;min-width:0">'
-            f'<div style="color:#dde0f0;font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{label}</div>'
-            f'<div style="color:#444;font-size:11px;font-family:ui-monospace,monospace;margin-top:3px">{sublabel}</div>'
+            f'<div style="color:#d4c4a0;font-family:\'Courier Prime\',monospace;font-size:14px;'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{label}</div>'
+            f'<div style="color:#352c1e;font-size:9px;font-family:\'Share Tech Mono\',monospace;'
+            f'margin-top:3px;letter-spacing:0.1em;text-transform:uppercase">{sublabel}</div>'
             f'</div>'
-            f'<div style="color:{color};font-size:11px;font-family:ui-monospace,monospace;white-space:nowrap;margin-left:12px">{stage}</div>'
+            f'<div style="color:{color};font-size:9px;font-family:\'Share Tech Mono\',monospace;'
+            f'letter-spacing:0.18em;text-transform:uppercase;white-space:nowrap;margin-left:12px">{stage}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
