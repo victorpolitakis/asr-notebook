@@ -290,13 +290,14 @@ def _handle_podcast_job(file_info: dict) -> None:
         if result.get("mp3_path") and Path(result["mp3_path"]).exists():
             db.upload_file(result["mp3_path"], config.DRIVE_OUTPUT_PODCASTS, filename=f"{job_id}.mp3")
 
-        # Write completion metadata
+        # Write completion metadata (includes script for Streamlit display)
         db.write_json(
             {
-                "job_id": job_id,
+                "job_id":       job_id,
                 "duration_sec": result.get("duration_sec", 0),
-                "model_info": result.get("model_info", {}),
-                "word_count": result.get("word_count", 0),
+                "model_info":   result.get("model_info", {}),
+                "word_count":   result.get("word_count", 0),
+                "script_text":  result.get("script_text", ""),
                 "completed_at": _now_iso(),
                 "mp3_filename": f"{job_id}.mp3",
             },
@@ -406,6 +407,19 @@ def _handle_podcast_job_fs(json_path: str, filename: str) -> None:
         if result and result.get("mp3_path"):
             db.upload_file(result["mp3_path"], config.DRIVE_OUTPUT_PODCASTS, filename=f"{job_id}.mp3")
 
+        db.write_json(
+            {
+                "job_id":       job_id,
+                "duration_sec": result.get("duration_sec", 0) if result else 0,
+                "model_info":   result.get("model_info", {}) if result else {},
+                "word_count":   result.get("word_count", 0) if result else 0,
+                "script_text":  result.get("script_text", "") if result else "",
+                "completed_at": _now_iso(),
+                "mp3_filename": f"{job_id}.mp3",
+            },
+            config.DRIVE_OUTPUT_PODCASTS,
+            f"{job_id}.json",
+        )
         db.write_status(job_id, _make_status(job_id, "podcast", "done", progress_pct=1.0, eta_seconds=0))
 
         processed_dir = os.path.dirname(json_path) + "/processed"

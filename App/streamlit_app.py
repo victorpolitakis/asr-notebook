@@ -417,12 +417,17 @@ _DEFAULTS: dict[str, Any] = {
     "summary":           None,
     "acc_result":        None,
     "acc_gt":            None,
-    "history_items":     None,
-    "drive_connected":   False,
-    "_page":             "Upload",
-    "poll_miss_count":   0,
-    "chat_history":      [],
-    "model_transcripts": {},
+    "history_items":      None,
+    "drive_connected":    False,
+    "_page":              "Upload",
+    "poll_miss_count":    0,
+    "chat_history":       [],
+    "model_transcripts":  {},
+    "podcast_job_id":     None,
+    "podcast_status":     "idle",   # idle | pending | podcast_script | podcast_tts | done | failed
+    "podcast_audio_bytes": None,
+    "podcast_script_text": None,
+    "podcast_error":      None,
 }
 
 for _k, _v in _DEFAULTS.items():
@@ -469,6 +474,17 @@ def _load_results(job_id: str) -> None:
                 acc_data = db.read_json(f["id"])
                 st.session_state.acc_gt     = acc_data.get("gt_text", "")
                 st.session_state.acc_result = acc_data.get("results")
+            elif f["name"] == "podcast_ref.json":
+                ref = db.read_json(f["id"])
+                pod_jid = ref.get("podcast_job_id")
+                if pod_jid:
+                    st.session_state.podcast_job_id = pod_jid
+                    try:
+                        ps = db.read_status(pod_jid)
+                        if ps and ps.get("stage") == "done":
+                            st.session_state.podcast_status = "done"
+                    except Exception:
+                        pass
     except Exception:
         pass
 
@@ -555,7 +571,7 @@ with st.sidebar:
     # ── Navigation ──
     # type="primary" on the active page gives a clear visual active state without JS
     _cur_page = st.session_state._page
-    _nav_items = [("Upload", "Upload"), ("Results", "Results"), ("Accuracy", "Accuracy Check"), ("History", "History")]
+    _nav_items = [("Upload", "Upload"), ("Results", "Results"), ("Accuracy", "Accuracy Check"), ("Podcast", "Podcast"), ("History", "History")]
     for _key, _label in _nav_items:
         if st.button(
             _label, key=f"nav_{_key}",
@@ -1268,7 +1284,7 @@ def _page_history() -> None:
                 st.session_state.history_items = []
         st.session_state._hist_loading = False
 
-    items = st.session_state.history_items or []
+    items = [i for i in (st.session_state.history_items or []) if i.get("filename")]
 
     if not items:
         st.info("No jobs found in the Drive output folder.")
@@ -1322,6 +1338,237 @@ def _page_history() -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Page: Podcast
+# ══════════════════════════════════════════════════════════════════════════
+
+_TTS_MODELS = {
+    "kokoro": ("Kokoro", "Fast · High quality · Apache 2.0 · ~500 MB", "af_heart", "am_adam"),
+    "dia":    ("Dia",    "Natural dialogue · Nari Labs · ~3 GB",       None,        None),
+    "bark":   ("Bark",   "Expressive · Suno · ~5 GB",                  "v2/en_speaker_6", "v2/en_speaker_0"),
+}
+
+_TONES = [
+    ("casual",    "Casual",    "Two hosts chatting — relaxed, warm, engaging"),
+    ("academic",  "Academic",  "Evidence-based analysis — precise, cites key points"),
+    ("debate",    "Debate",    "Host A and B argue different sides — dynamic"),
+    ("interview", "Interview", "Host interviews a guest expert — Q&A format"),
+]
+
+
+def _reset_podcast() -> None:
+    for k in ("podcast_job_id", "podcast_status", "podcast_audio_bytes",
+              "podcast_script_text", "podcast_error"):
+        st.session_state[k] = _DEFAULTS[k]
+
+
+def _fetch_podcast_result(job_id: str) -> None:
+    """Download MP3 bytes + script from Drive when a podcast job is done."""
+    try:
+        for f in db.list_files(config.DRIVE_OUTPUT_PODCASTS):
+            if f["name"] == f"{job_id}.mp3":
+                st.session_state.podcast_audio_bytes = db.read_bytes(f["id"])
+            elif f["name"] == f"{job_id}.json":
+                meta = db.read_json(f["id"])
+                st.session_state.podcast_script_text = meta.get("script_text", "")
+    except Exception:
+        pass
+
+
+def _submit_podcast_job(source_text: str, tone: str, length: str,
+                        tts_model: str, name_a: str, name_b: str) -> None:
+    pod_id = db.generate_job_id()
+    _, _, voice_a, voice_b = _TTS_MODELS.get(tts_model, _TTS_MODELS["kokoro"])
+    job_config = {
+        "job_id":      pod_id,
+        "source_text": source_text,
+        "speaker_a":   {"name": name_a, "description": "podcast host", "tts_model": tts_model, "voice": voice_a},
+        "speaker_b":   {"name": name_b, "description": "podcast co-host", "tts_model": tts_model, "voice": voice_b},
+        "config":      {"tone": tone, "length": length},
+        "created_at":  datetime.now(timezone.utc).isoformat(),
+    }
+    db.write_json(job_config, config.DRIVE_INPUT_JOBS, f"{pod_id}.json")
+    st.session_state.podcast_job_id = pod_id
+    st.session_state.podcast_status = "pending"
+
+    # Persist the link so History → Load Results restores podcast state
+    asr_jid = st.session_state.get("active_job_id")
+    if asr_jid:
+        try:
+            db.write_json({"podcast_job_id": pod_id},
+                          f"{config.DRIVE_OUTPUT}/{asr_jid}", "podcast_ref.json")
+        except Exception:
+            pass
+
+
+def _page_podcast() -> None:
+    t = st.session_state.transcript or {}
+    full_text = t.get("full_text", "")
+    word_count = len(full_text.split()) if full_text.strip() else 0
+
+    st.markdown("## Podcast Studio")
+
+    if not full_text.strip():
+        st.markdown(
+            '<div class="jcard" style="gap:14px">'
+            '<div style="font-size:28px;color:#7a5c0a">🎙</div>'
+            '<div><div style="color:#d4c4a0;font-size:14px">No transcript loaded</div>'
+            '<div style="color:#7a6d54;font-size:11px;margin-top:4px">'
+            'Load a job from <b>History</b> or finish an upload first.</div></div></div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── Source info ─────────────────────────────────────────────────
+    dur = t.get("total_duration_sec", 0)
+    fname = st.session_state.uploaded_filename or "—"
+    st.markdown(
+        f'<div class="jcard" style="margin-bottom:4px">'
+        f'<div><div style="color:#e8a520;font-family:var(--fn-mono);font-size:9px;'
+        f'letter-spacing:.2em;text-transform:uppercase">Source</div>'
+        f'<div style="color:#d4c4a0;font-size:13px;margin-top:3px">'
+        f'{word_count:,} words · {_fmt_time(dur)}'
+        f'<span style="color:#352c1e;margin-left:10px;font-size:11px">{fname[:40]}</span>'
+        f'</div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+    pstatus = st.session_state.podcast_status
+
+    # ── Done ─────────────────────────────────────────────────────────
+    if pstatus == "done":
+        audio = st.session_state.podcast_audio_bytes
+        script = st.session_state.podcast_script_text or ""
+        if not audio:
+            with st.spinner("Fetching audio…"):
+                _fetch_podcast_result(st.session_state.podcast_job_id)
+            audio = st.session_state.podcast_audio_bytes
+
+        st.divider()
+        if audio:
+            st.audio(audio, format="audio/mp3")
+            st.download_button("⬇ Download MP3", audio, file_name="podcast.mp3",
+                               mime="audio/mp3", key="pod_dl_mp3")
+        else:
+            st.warning("Audio not found in Drive — check `output/podcasts/`.")
+
+        if script:
+            with st.expander("Script"):
+                st.text_area("", script, height=320,
+                             label_visibility="collapsed", key="pod_script_view")
+
+        st.write("")
+        if st.button("Generate New Episode", key="pod_regen"):
+            _reset_podcast()
+            st.rerun()
+        return
+
+    # ── Failed ───────────────────────────────────────────────────────
+    if pstatus == "failed":
+        err = st.session_state.podcast_error or "Unknown error"
+        st.error(f"Generation failed: {err}")
+        if st.button("Try Again", key="pod_retry"):
+            _reset_podcast()
+            st.rerun()
+        return
+
+    # ── In progress ──────────────────────────────────────────────────
+    if pstatus in ("pending", "podcast_script", "podcast_tts"):
+        _stage_label = {
+            "pending":        "Waiting for Colab…",
+            "podcast_script": "Generating script via LLM…",
+            "podcast_tts":    "Synthesizing audio…",
+        }.get(pstatus, pstatus)
+        st.markdown(
+            f'<div class="jcard is-processing" style="margin:20px 0">'
+            f'<div style="font-size:22px;color:#7a5c0a;min-width:24px">▶</div>'
+            f'<div style="flex:1">'
+            f'<div style="color:#d4c4a0;font-size:14px">{_stage_label}</div>'
+            f'<div style="color:#352c1e;font-size:9px;font-family:var(--fn-mono);'
+            f'margin-top:5px;letter-spacing:.1em;text-transform:uppercase">'
+            f'POD / {st.session_state.podcast_job_id}</div>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Make sure Colab Cell 6 is active and INSTALL_PODCAST_DEPS=True in Cell 1.")
+        return
+
+    # ── Configuration form ───────────────────────────────────────────
+    st.write("")
+
+    # Tone
+    st.markdown(
+        '<div style="font-family:var(--fn-mono);font-size:9px;color:#7a6d54;'
+        'letter-spacing:.2em;text-transform:uppercase;margin-bottom:8px">Tone</div>',
+        unsafe_allow_html=True,
+    )
+    _tone = st.session_state.get("podcast_tone", "casual")
+    tone_cols = st.columns(4)
+    for col, (key, label, desc) in zip(tone_cols, _TONES):
+        active = _tone == key
+        if col.button(label, key=f"pod_tone_{key}",
+                      type="primary" if active else "secondary",
+                      use_container_width=True, help=desc):
+            st.session_state.podcast_tone = key
+            st.rerun()
+    _tone_desc = next(d for k, _, d in _TONES if k == _tone)
+    st.caption(_tone_desc)
+
+    st.write("")
+
+    cfg_l, cfg_r = st.columns(2)
+
+    with cfg_l:
+        st.markdown(
+            '<div style="font-family:var(--fn-mono);font-size:9px;color:#7a6d54;'
+            'letter-spacing:.2em;text-transform:uppercase;margin-bottom:6px">Length</div>',
+            unsafe_allow_html=True,
+        )
+        length = st.radio(
+            "Length",
+            ["short", "medium", "long"],
+            format_func=lambda x: {"short": "Short  (~3 min)", "medium": "Medium  (~7 min)", "long": "Long  (~15 min)"}[x],
+            index=1, key="podcast_length", label_visibility="collapsed",
+        )
+
+    with cfg_r:
+        st.markdown(
+            '<div style="font-family:var(--fn-mono);font-size:9px;color:#7a6d54;'
+            'letter-spacing:.2em;text-transform:uppercase;margin-bottom:6px">TTS Model</div>',
+            unsafe_allow_html=True,
+        )
+        tts_key = st.radio(
+            "TTS Model",
+            list(_TTS_MODELS.keys()),
+            format_func=lambda k: f"{_TTS_MODELS[k][0]}  —  {_TTS_MODELS[k][1]}",
+            key="podcast_tts_model", label_visibility="collapsed",
+        )
+
+    st.write("")
+    st.markdown(
+        '<div style="font-family:var(--fn-mono);font-size:9px;color:#7a6d54;'
+        'letter-spacing:.2em;text-transform:uppercase;margin-bottom:6px">Speakers</div>',
+        unsafe_allow_html=True,
+    )
+    sp_l, sp_r = st.columns(2)
+    name_a = sp_l.text_input("Host A name", value="Host A", key="podcast_name_a", label_visibility="collapsed",
+                              placeholder="Host A name")
+    name_b = sp_r.text_input("Host B name", value="Host B", key="podcast_name_b", label_visibility="collapsed",
+                              placeholder="Host B name")
+
+    st.write("")
+    st.info(
+        "Generation runs in Colab — make sure Cell 6 is active. "
+        "Kokoro requires **INSTALL_PODCAST_DEPS=True** in Cell 1.",
+        icon="ℹ️",
+    )
+
+    if st.button("▶  Generate Episode", type="primary", use_container_width=True, key="pod_generate"):
+        with st.spinner("Submitting to Drive…"):
+            _submit_podcast_job(full_text, _tone, length, tts_key, name_a, name_b)
+        st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Auto-poll fragment + routing
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -1336,6 +1583,13 @@ _poll_interval: int | None = (
     else None
 )
 
+_podcast_poll_interval: int | None = (
+    config.LOCAL_POLL_INTERVAL_SEC
+    if (st.session_state.podcast_status in ("pending", "podcast_script", "podcast_tts")
+        and st.session_state._page == "Podcast")
+    else None
+)
+
 
 @st.fragment(run_every=_poll_interval)
 def _auto_poll() -> None:
@@ -1345,12 +1599,38 @@ def _auto_poll() -> None:
             st.rerun(scope="app")
 
 
+@st.fragment(run_every=_podcast_poll_interval)
+def _podcast_poll() -> None:
+    job_id = st.session_state.get("podcast_job_id")
+    if not job_id or st.session_state.podcast_status not in ("pending", "podcast_script", "podcast_tts"):
+        return
+    try:
+        s = db.read_status(job_id)
+        if not s:
+            return
+        stage = s.get("stage", "")
+        if stage == "done":
+            _fetch_podcast_result(job_id)
+            st.session_state.podcast_status = "done"
+            st.rerun(scope="app")
+        elif stage == "error":
+            st.session_state.podcast_status = "failed"
+            st.session_state.podcast_error = s.get("error", "Unknown error")
+            st.rerun(scope="app")
+        elif stage in ("podcast_script", "podcast_tts"):
+            st.session_state.podcast_status = stage
+    except Exception:
+        pass
+
+
 _auto_poll()
+_podcast_poll()
 
 _PAGES = {
     "Upload":   _page_upload,
     "Results":  _page_results,
     "Accuracy": _page_accuracy,
+    "Podcast":  _page_podcast,
     "History":  _page_history,
 }
 

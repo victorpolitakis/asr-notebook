@@ -320,6 +320,18 @@ def read_json(file_id: str) -> dict:
     return json.loads(fh.read().decode("utf-8"))
 
 
+def read_bytes(file_id: str) -> bytes:
+    """Download a file from Drive by ID and return raw bytes."""
+    service = authenticate()
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return fh.getvalue()
+
+
 def write_json(
     data: dict,
     drive_folder: str,

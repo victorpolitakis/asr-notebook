@@ -697,10 +697,11 @@ def generate_podcast(job_config: dict) -> dict:
     word_count = len(script.split())
 
     return {
-        "mp3_path": mp3_path,
+        "mp3_path":    mp3_path,
+        "script_text": script,
         "duration_sec": round(duration_sec, 1),
-        "model_info": model_info,
-        "word_count": word_count,
+        "model_info":  model_info,
+        "word_count":  word_count,
     }
 
 
