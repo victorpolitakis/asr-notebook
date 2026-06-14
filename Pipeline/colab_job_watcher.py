@@ -140,8 +140,17 @@ def _handle_asr_job(file_info: dict) -> None:
         def _run_isolated() -> None:
             loop = _asyncio.new_event_loop()
             _asyncio.set_event_loop(loop)
-            import run_pipeline
-            result_holder["success"] = run_pipeline.run_pipeline(tmp_path)
+            try:
+                import run_pipeline
+                result_holder["success"] = run_pipeline.run_pipeline(tmp_path)
+            finally:
+                try:
+                    pending = _asyncio.all_tasks(loop)
+                    if pending:
+                        loop.run_until_complete(_asyncio.gather(*pending, return_exceptions=True))
+                except Exception:
+                    pass
+                loop.close()
         t = threading.Thread(target=_run_isolated)
         t.start()
         t.join()
