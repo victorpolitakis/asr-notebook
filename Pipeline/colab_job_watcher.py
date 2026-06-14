@@ -182,6 +182,16 @@ def _handle_asr_job(file_info: dict) -> None:
         except Exception as _me:
             logger.warning("Could not read selected_models from meta.json: %s", _me)
 
+        # Read duration from main transcript so extra model files have correct duration
+        main_duration_sec: float = 0.0
+        try:
+            main_t_path = results_dir / "transcript.json"
+            if main_t_path.exists():
+                with open(main_t_path, encoding="utf-8") as _f:
+                    main_duration_sec = json.load(_f).get("total_duration_sec", 0.0)
+        except Exception:
+            pass
+
         for model_name in extra_models:
             logger.info("Running extra model: %s", model_name)
             db.write_status(
@@ -194,6 +204,7 @@ def _handle_asr_job(file_info: dict) -> None:
                     "source_file": filename,
                     "full_text": raw_text,
                     "model_name": model_name,
+                    "total_duration_sec": main_duration_sec,
                     "chunks": [{"segments": [{"speaker": "Speaker A", "text": raw_text, "start": 0.0}]}],
                 }
                 t_json = results_dir / f"transcript_{model_name}.json"

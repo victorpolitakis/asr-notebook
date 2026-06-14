@@ -945,8 +945,12 @@ def _page_results() -> None:
     with tab_tr:
         model_trans = st.session_state.model_transcripts or {}
         # Always include the main transcript (whisper-turbo from run_pipeline)
+        main_dur = t.get("total_duration_sec", 0) if t else 0
         all_transcripts: dict[str, dict] = {"Whisper Turbo": t} if t else {}
         for mk, mv in model_trans.items():
+            # Extra model transcripts don't have duration — inherit from main transcript
+            if main_dur and not mv.get("total_duration_sec"):
+                mv = {**mv, "total_duration_sec": main_dur}
             all_transcripts[_DISPLAY_MAP.get(mk, mk.upper())] = mv
 
         if len(all_transcripts) > 1:
