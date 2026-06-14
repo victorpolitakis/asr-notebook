@@ -331,7 +331,7 @@ with st.sidebar:
         st.caption(f"↳ {_fn[:28]}{'…' if len(_fn) > 28 else ''}")
 
     # Progress bar during processing
-    if _is_processing and st.session_state.active_job_id:
+    if st.session_state.pipeline_state == "processing" and st.session_state.active_job_id:
         try:
             _status_live = db.read_status(st.session_state.active_job_id)
             if _status_live:
