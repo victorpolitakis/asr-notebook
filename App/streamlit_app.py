@@ -809,11 +809,13 @@ def _results_transcript(t: dict) -> None:
     spks  = {s["speaker"] for s in segs}
     full  = t.get("full_text", "")
 
+    n_speakers = len(spks) if spks else (1 if full.strip() else 0)
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Duration",  _fmt_time(dur))
     c2.metric("Segments",  len(segs))
     c3.metric("Languages", ", ".join(langs) if langs else "en")
-    c4.metric("Speakers",  len(spks))
+    c4.metric("Speakers",  n_speakers)
 
     if full:
         st.download_button("⬇ transcript.txt", full, file_name="transcript.txt")
@@ -821,19 +823,24 @@ def _results_transcript(t: dict) -> None:
     st.divider()
 
     if not segs:
-        st.caption("No speaker segments found.")
         if full:
-            st.text(full[:5000])
+            st.markdown(f'<div class="seg seg-a">{full}</div>', unsafe_allow_html=True)
+        else:
+            st.caption("No transcript content found.")
         return
 
-    for seg in segs:
-        css_cls = "seg-a" if "A" in seg["speaker"] else "seg-b"
-        st.markdown(
-            f'<div class="seg {css_cls}">'
-            f'<span class="lbl">{seg["speaker"]} · {_fmt_time(seg["start"])}</span>'
-            f'{seg["text"]}</div>',
-            unsafe_allow_html=True,
-        )
+    if len(spks) > 1:
+        for seg in segs:
+            css_cls = "seg-a" if "A" in seg["speaker"] else "seg-b"
+            st.markdown(
+                f'<div class="seg {css_cls}">'
+                f'<span class="lbl">{seg["speaker"]} · {_fmt_time(seg["start"])}</span>'
+                f'{seg["text"]}</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        combined = "<br>".join(seg["text"] for seg in segs)
+        st.markdown(f'<div class="seg seg-a">{combined}</div>', unsafe_allow_html=True)
 
 
 def _results_entities(s: dict) -> None:
@@ -884,16 +891,12 @@ def _results_summaries(s: dict) -> None:
     sums = s.get("summaries") or {}
     chs  = s.get("chapters")  or []
 
-    cols = st.columns(3)
-    for col, (title, key) in zip(cols, [("TL;DR", "tldr"), ("Executive", "executive"), ("Deep Dive", "deep_dive")]):
-        text = _flatten_summary(sums.get(key))
-        with col:
-            st.markdown(f"**{title}**")
-            if text:
-                st.text_area("", text, height=220, key=f"sum_{key}", label_visibility="collapsed")
-                st.download_button("Download", text, file_name=f"{key}.txt", key=f"dl_{key}")
-            else:
-                st.caption("Not available.")
+    text = _flatten_summary(sums.get("deep_dive"))
+    if text:
+        st.text_area("", text, height=400, key="sum_deep_dive", label_visibility="collapsed")
+        st.download_button("Download", text, file_name="deep_dive.txt", key="dl_deep_dive")
+    else:
+        st.caption("Summary not available.")
 
     if chs:
         st.divider()
