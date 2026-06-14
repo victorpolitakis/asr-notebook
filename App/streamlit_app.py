@@ -1122,7 +1122,8 @@ def _acc_single() -> None:
         st.caption(f"Available transcripts: {', '.join(hypotheses.keys())}")
         return
 
-    if st.button("Compare all models", type="primary"):
+    # Auto-compute when ref is available and either no result yet or ref changed
+    if ref != (st.session_state.acc_gt or "") or not st.session_state.acc_result:
         with st.spinner("Computing metrics…"):
             results = {
                 name: cm.compute_all_metrics(hyp, ref, label=name)
@@ -1130,7 +1131,6 @@ def _acc_single() -> None:
             }
             st.session_state.acc_result = results
             st.session_state.acc_gt = ref
-            # Persist to Drive so it survives tab switches and history reload
             job_id = st.session_state.get("active_job_id")
             if job_id:
                 try:
