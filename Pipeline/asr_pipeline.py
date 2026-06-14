@@ -81,6 +81,22 @@ def _get_diarization() -> Any:
         return _diarization_pipeline
     try:
         import os, warnings
+        # torchaudio >= 2.4 dropped AudioMetaData from the top-level namespace;
+        # pyannote.audio still does `from torchaudio import AudioMetaData` — patch it.
+        import torchaudio as _ta
+        if not hasattr(_ta, 'AudioMetaData'):
+            try:
+                from torchaudio.backend.common import AudioMetaData as _AM
+            except ImportError:
+                try:
+                    from torchaudio._internal.module_utils import AudioMetaData as _AM
+                except ImportError:
+                    import collections as _c
+                    _AM = _c.namedtuple(
+                        'AudioMetaData',
+                        ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding'],
+                    )
+            _ta.AudioMetaData = _AM
         warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
         from pyannote.audio import Pipeline as PypPipe
         hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
