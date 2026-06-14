@@ -716,11 +716,10 @@ def _page_upload() -> None:
     st.caption("Select ASR models to compare and then choose an audio file.")
     selected_models = st.multiselect(
         "ASR Models to compare",
-        ["Whisper Turbo", "Whisper Large v3", "Nvidia Parakeet", "Qwen ASR"],
+        ["Whisper Turbo", "Whisper Large v3", "Nvidia Parakeet", "Nvidia Canary", "Nemotron", "Qwen ASR"],
         default=["Whisper Turbo"],
         key="selected_models_picker"
     )
-    st.caption("Canary & Nemotron require NeMo — enable INSTALL_NEMO in Colab Cell 4.")
     uploaded = st.file_uploader(
         "Choose an audio file",
         type=["wav", "mp3", "m4a"],
