@@ -1023,7 +1023,6 @@ def _acc_single() -> None:
         st.info("No transcript loaded. Go to **Upload** or **History** to load a job first.")
         return
 
-    st.caption("Hypothesis: pipeline transcript from the current job.")
 
     up_ref = st.file_uploader("Ground Truth (.txt)", type=["txt"], key="acc_s_ref")
     ref = up_ref.read().decode("utf-8", errors="replace") if up_ref else ""
