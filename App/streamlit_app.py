@@ -935,9 +935,9 @@ def _page_results() -> None:
 
         if len(all_transcripts) > 1:
             model_tabs = st.tabs(list(all_transcripts.keys()))
-            for m_tab, trans in zip(model_tabs, all_transcripts.values()):
+            for m_tab, (mname, trans) in zip(model_tabs, all_transcripts.items()):
                 with m_tab:
-                    _results_transcript(trans)
+                    _results_transcript(trans, key=mname.replace(" ", "_").lower())
         else:
             _results_transcript(t)
     with tab_ent:
@@ -948,7 +948,7 @@ def _page_results() -> None:
         _results_chat(s)
 
 
-def _results_transcript(t: dict) -> None:
+def _results_transcript(t: dict, key: str = "main") -> None:
     segs  = _segments_from_transcript(t)
     dur   = t.get("total_duration_sec", 0)
     langs = t.get("languages_detected", [])
@@ -964,7 +964,7 @@ def _results_transcript(t: dict) -> None:
     c4.metric("Speakers",  n_speakers)
 
     if full:
-        st.download_button("⬇ transcript.txt", full, file_name="transcript.txt")
+        st.download_button("⬇ transcript.txt", full, file_name="transcript.txt", key=f"dl_transcript_{key}")
 
     st.divider()
 
