@@ -438,6 +438,14 @@ def _upload_and_submit(f: Any) -> None:
     try:
         db.upload_file(tmp_path, config.DRIVE_INPUT, filename=f"{jid}{ext}")
         st.session_state.pipeline_state = "processing"
+        try:
+            db.write_json(
+                {"filename": f.name, "uploaded_at": datetime.now(timezone.utc).isoformat()},
+                f"{config.DRIVE_OUTPUT}/{jid}",
+                "meta.json",
+            )
+        except Exception:
+            pass
     except Exception as exc:
         st.session_state.pipeline_state = "error"
         st.error(f"Upload failed: {exc}")
@@ -613,25 +621,26 @@ def _page_accuracy() -> None:
 # ── Single comparison ──────────────────────────────────────────────────────
 
 def _acc_single() -> None:
-    # Hypothesis: auto-load from current job transcript if available
-    t = st.session_state.transcript or {}
+    # Hypothesis is always the pipeline transcript — never uploaded manually
+    t   = st.session_state.transcript or {}
     hyp = t.get("normalized_full_text") or t.get("full_text") or ""
-    if hyp.strip():
-        st.caption("Hypothesis: using normalized transcript from the current job.")
-    else:
-        up_hyp = st.file_uploader("Hypothesis (.txt)", type=["txt"], key="acc_s_hyp")
-        hyp = up_hyp.read().decode("utf-8", errors="replace") if up_hyp else ""
 
-    up_ref = st.file_uploader("Reference / Ground Truth (.txt)", type=["txt"], key="acc_s_ref")
+    if not hyp.strip():
+        st.info("No transcript loaded. Go to **Upload** or **History** to load a job first.")
+        return
+
+    st.caption("Hypothesis: pipeline transcript from the current job.")
+
+    up_ref = st.file_uploader("Ground Truth (.txt)", type=["txt"], key="acc_s_ref")
     ref = up_ref.read().decode("utf-8", errors="replace") if up_ref else ""
 
     c1, c2 = st.columns(2)
-    c1.text_area("Hypothesis (preview)", hyp[:1500] + ("…" if len(hyp) > 1500 else ""),
+    c1.text_area("Pipeline output (preview)", hyp[:1500] + ("…" if len(hyp) > 1500 else ""),
                  height=140, key="acc_s_hyp_prev", disabled=True)
-    c2.text_area("Reference (preview)",  ref[:1500] + ("…" if len(ref)  > 1500 else ""),
+    c2.text_area("Ground truth (preview)",    ref[:1500] + ("…" if len(ref)  > 1500 else ""),
                  height=140, key="acc_s_ref_prev", disabled=True)
 
-    if st.button("Compare", type="primary", disabled=not (hyp.strip() and ref.strip())):
+    if st.button("Compare", type="primary", disabled=not ref.strip()):
         with st.spinner("Computing metrics…"):
             st.session_state.acc_result = cm.compute_all_metrics(hyp, ref)
 
@@ -646,16 +655,19 @@ def _acc_render_single(r: dict) -> None:
 
     st.divider()
 
+    def _pct(v: Any) -> str:
+        return f"{v * 100:.1f}%" if v is not None else "—"
+
     cols = st.columns(4)
-    cols[0].metric("WER",      _fv(w.get("wer"))            if "error" not in w else "—")
-    cols[1].metric("CER",      _fv(w.get("cer"))            if "error" not in w else "—")
-    cols[2].metric("Norm WER", _fv(w.get("normalized_wer")) if "error" not in w else "—")
-    cols[3].metric("BLEU",     _fv(b.get("bleu"))           if "error" not in b else "—")
+    cols[0].metric("WER",      _pct(w.get("wer"))            if "error" not in w else "—")
+    cols[1].metric("CER",      _pct(w.get("cer"))            if "error" not in w else "—")
+    cols[2].metric("Norm WER", _pct(w.get("normalized_wer")) if "error" not in w else "—")
+    cols[3].metric("BLEU",     _pct(b.get("bleu"))           if "error" not in b else "—")
 
     c2 = st.columns(3)
-    c2[0].metric("ROUGE-1 F1", _fv(rouge.get("rouge1", {}).get("f1")))
-    c2[1].metric("ROUGE-2 F1", _fv(rouge.get("rouge2", {}).get("f1")))
-    c2[2].metric("ROUGE-L F1", _fv(rouge.get("rougeL", {}).get("f1")))
+    c2[0].metric("ROUGE-1 F1", _pct(rouge.get("rouge1", {}).get("f1")))
+    c2[1].metric("ROUGE-2 F1", _pct(rouge.get("rouge2", {}).get("f1")))
+    c2[2].metric("ROUGE-L F1", _pct(rouge.get("rougeL", {}).get("f1")))
 
     with st.expander("BLEU Details"):
         if "error" in b:
@@ -737,14 +749,17 @@ def _page_history() -> None:
         color = {"done": "#3dde8f", "error": "#ff5a5a"}.get(stage, "#ddb83d")
         icon  = {"done": "✅", "error": "❌"}.get(stage, "⏳")
 
+        fname_raw = item.get("filename", "")
+        label     = fname_raw if fname_raw else f"job: {jid}"
+        sublabel  = f"job: {jid} · {ts}" if fname_raw else ts
         st.markdown(
             f'<div class="jcard" style="margin-top:8px">'
             f'<span style="font-size:22px">{icon}</span>'
-            f'<div style="flex:1">'
-            f'<div style="color:#dde0f0;font-family:ui-monospace,monospace;font-size:13px;font-weight:500">job: {jid}</div>'
-            f'<div style="color:#444;font-size:11px;font-family:ui-monospace,monospace;margin-top:3px">{ts}</div>'
+            f'<div style="flex:1;min-width:0">'
+            f'<div style="color:#dde0f0;font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{label}</div>'
+            f'<div style="color:#444;font-size:11px;font-family:ui-monospace,monospace;margin-top:3px">{sublabel}</div>'
             f'</div>'
-            f'<div style="color:{color};font-size:11px;font-family:ui-monospace,monospace">{stage}</div>'
+            f'<div style="color:{color};font-size:11px;font-family:ui-monospace,monospace;white-space:nowrap;margin-left:12px">{stage}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
