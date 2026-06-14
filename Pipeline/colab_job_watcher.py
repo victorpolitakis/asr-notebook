@@ -327,11 +327,14 @@ def _handle_podcast_job_fs(json_path: str, filename: str) -> None:
 # Main loop
 # ═══════════════════════════════════════════════════════════════════
 
+_IDLE_TIMEOUT_SEC: int = 300  # 5 minutes of no jobs → auto-stop
+
+
 def main_loop() -> None:
-    """Run indefinitely — poll Drive for new jobs and process them."""
+    """Poll Drive for new jobs. Auto-exits after 5 minutes of idle (no jobs found)."""
 
     logger.info("🚀 Colab job watcher starting")
-    logger.info("   Poll interval: %ds", config.POLL_INTERVAL_SEC)
+    logger.info("   Poll interval: %ds | Idle timeout: %ds", config.POLL_INTERVAL_SEC, _IDLE_TIMEOUT_SEC)
 
     # Ensure Drive folder structure exists
     db.init_drive_structure()
@@ -340,8 +343,10 @@ def main_loop() -> None:
     logger.info("   Watching: %s + %s", config.DRIVE_INPUT, config.DRIVE_INPUT_JOBS)
 
     processed_names: set[str] = set()  # Dedupe by filename across restarts
+    idle_since = time.time()
 
     while True:
+        job_found = False
         try:
             # ── Check for ASR jobs (WAV files in input/) via Drive API ──
             for file_info in db.find_new_input_files():
@@ -351,6 +356,8 @@ def main_loop() -> None:
                 if fname in processed_names:
                     continue
                 processed_names.add(fname)
+                job_found = True
+                idle_since = time.time()
                 _handle_asr_job(file_info)
 
             # ── Check for podcast jobs (JSON in input/podcast_jobs/) via Drive API ──
@@ -359,10 +366,16 @@ def main_loop() -> None:
                 if fname in processed_names:
                     continue
                 processed_names.add(fname)
+                job_found = True
+                idle_since = time.time()
                 _handle_podcast_job(file_info)
 
         except Exception as e:
             logger.error("Watcher loop exception: %s", e, exc_info=True)
+
+        if not job_found and (time.time() - idle_since) >= _IDLE_TIMEOUT_SEC:
+            logger.info("⏹️  No jobs for %ds — stopping watcher to save Colab runtime.", _IDLE_TIMEOUT_SEC)
+            return
 
         time.sleep(config.POLL_INTERVAL_SEC)
 

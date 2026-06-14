@@ -424,7 +424,6 @@ def _drive_connect_silent() -> None:
     if (_here / "token.json").exists():
         try:
             db.authenticate()
-            db.init_drive_structure()
             st.session_state.drive_connected = True
         except Exception:
             pass
@@ -646,7 +645,13 @@ def _page_upload() -> None:
     if jid:
         _render_job_card(jid, fname or "—", _ps)
         if _ps == "processing":
-            st.caption(f"Uploaded. Colab is transcribing — auto-updates every {config.LOCAL_POLL_INTERVAL_SEC} s.")
+            st.markdown(
+                f'<p style="font-family:var(--fn-mono);font-size:10px;color:var(--text-faint);'
+                f'letter-spacing:0.06em;text-transform:uppercase">'
+                f'Uploaded. Colab is transcribing — auto-updates every '
+                f'<span style="text-transform:none">{config.LOCAL_POLL_INTERVAL_SEC} s</span>.</p>',
+                unsafe_allow_html=True,
+            )
         elif _ps == "done":
             _render_upload_done_summary()
         elif _ps == "error":
@@ -998,30 +1003,35 @@ def _acc_render_single(r: dict) -> None:
 
 def _page_history() -> None:
     st.markdown("## History")
-    st.caption("Past jobs from Google Drive. Click **Load** to restore results.")
+    st.caption("Past jobs from Google Drive. Click **Refresh** to reload.")
 
     if not st.session_state.drive_connected:
         st.warning("Drive not connected — authenticate first from the sidebar.")
         return
 
-    # Auto-load on first visit
+    if st.button("↻ Refresh", key="hist_refresh"):
+        st.session_state.history_items = None
+        st.session_state._hist_loading = False
+        st.rerun()
+
+    # Two-pass loading to prevent the Upload page's fragment timer from racing
+    # against the blocking Drive API call. Pass 1 is instant: this page becomes
+    # the "last complete render", so any stale fragment fires show History content
+    # (not the old Upload file uploader). Pass 2 does the actual load.
     if st.session_state.history_items is None:
+        if not st.session_state.get("_hist_loading", False):
+            st.session_state._hist_loading = True
+            st.rerun()
         with st.spinner("Loading job history from Drive…"):
             try:
                 st.session_state.history_items = db.list_job_history()
             except Exception as exc:
                 st.error(f"Could not load history: {exc}")
                 st.session_state.history_items = []
-
-    _, col_refresh = st.columns([5, 1])
-    if col_refresh.button("↻ Refresh", key="hist_refresh"):
-        with st.spinner("Refreshing…"):
-            try:
-                st.session_state.history_items = db.list_job_history()
-            except Exception as exc:
-                st.error(f"Could not refresh: {exc}")
+        st.session_state._hist_loading = False
 
     items = st.session_state.history_items or []
+
     if not items:
         st.info("No jobs found in the Drive output folder.")
         return
@@ -1076,9 +1086,17 @@ def _page_history() -> None:
 # Auto-poll fragment + routing
 # ══════════════════════════════════════════════════════════════════════════
 
+# Only fire the poll fragment when the user is on the Upload page.
+# Firing on other pages caused a race: the fragment's partial rerun froze
+# the UI at the previous (Upload) render while History was still loading,
+# making the file uploader bleed through into the History page.
 _poll_interval: int | None = (
-    config.LOCAL_POLL_INTERVAL_SEC if st.session_state.pipeline_state == "processing" else None
+    config.LOCAL_POLL_INTERVAL_SEC
+    if (st.session_state.pipeline_state == "processing"
+        and st.session_state._page == "Upload")
+    else None
 )
+
 
 @st.fragment(run_every=_poll_interval)
 def _auto_poll() -> None:
@@ -1086,6 +1104,7 @@ def _auto_poll() -> None:
         _poll_job(st.session_state.active_job_id)
         if st.session_state.pipeline_state != "processing":
             st.rerun(scope="app")
+
 
 _auto_poll()
 

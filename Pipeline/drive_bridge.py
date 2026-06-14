@@ -52,6 +52,12 @@ _SCOPES = ["https://www.googleapis.com/auth/drive"]
 _SERVICE: Any = None
 
 
+def _is_ssl_error(exc: Exception) -> bool:
+    s = str(exc).lower()
+    return any(k in s for k in ("ssl", "record layer", "broken pipe",
+                                 "connection reset", "eof occurred", "connection aborted"))
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Authentication
 # ═══════════════════════════════════════════════════════════════════
@@ -136,41 +142,52 @@ def authenticate() -> Any:
 def get_or_create_folder(name: str, parent_id: str | None = None) -> str:
     """Return the Drive folder ID for *name*, creating it if it doesn't exist.
     Supports nested paths like 'ece22073/input' — traverses level by level.
+    Retries once after resetting the service on transient SSL/network errors.
     """
-    service = authenticate()
-    parts = [p for p in name.split("/") if p]
-    cur_parent = parent_id
+    global _SERVICE
+    for attempt in range(2):
+        try:
+            service = authenticate()
+            parts = [p for p in name.split("/") if p]
+            cur_parent = parent_id
 
-    for part in parts:
-        query = (
-            f"mimeType='application/vnd.google-apps.folder' "
-            f"and name='{part}' and trashed=false"
-        )
-        if cur_parent:
-            query += f" and '{cur_parent}' in parents"
+            for part in parts:
+                query = (
+                    f"mimeType='application/vnd.google-apps.folder' "
+                    f"and name='{part}' and trashed=false"
+                )
+                if cur_parent:
+                    query += f" and '{cur_parent}' in parents"
 
-        results = (
-            service.files()
-            .list(q=query, fields="files(id, name, createdTime)",
-                  orderBy="createdTime", pageSize=5)
-            .execute()
-        )
-        items = results.get("files", [])
+                results = (
+                    service.files()
+                    .list(q=query, fields="files(id, name, createdTime)",
+                          orderBy="createdTime", pageSize=5)
+                    .execute()
+                )
+                items = results.get("files", [])
 
-        if items:
-            cur_parent = items[0]["id"]
-        else:
-            folder_meta = {
-                "name": part,
-                "mimeType": "application/vnd.google-apps.folder",
-            }
-            if cur_parent:
-                folder_meta["parents"] = [cur_parent]
-            folder = service.files().create(body=folder_meta, fields="id").execute()
-            cur_parent = folder["id"]
-            logger.info("Drive: created folder '%s' (id: %s)", part, cur_parent)
+                if items:
+                    cur_parent = items[0]["id"]
+                else:
+                    folder_meta = {
+                        "name": part,
+                        "mimeType": "application/vnd.google-apps.folder",
+                    }
+                    if cur_parent:
+                        folder_meta["parents"] = [cur_parent]
+                    folder = service.files().create(body=folder_meta, fields="id").execute()
+                    cur_parent = folder["id"]
+                    logger.info("Drive: created folder '%s' (id: %s)", part, cur_parent)
 
-    return cur_parent
+            return cur_parent
+
+        except Exception as exc:
+            if attempt == 0 and _is_ssl_error(exc):
+                logger.warning("SSL/network error in get_or_create_folder, resetting service: %s", exc)
+                _SERVICE = None
+                continue
+            raise
 
 
 def _resolve_folder_id(folder_name: str) -> str:
@@ -224,20 +241,30 @@ def upload_bytes(
 
 
 def list_files(drive_folder: str) -> list[dict]:
-    """List all non-trashed files in a Drive folder. Returns list of {id, name, createdTime}."""
-    service = authenticate()
-    folder_id = _resolve_folder_id(drive_folder)
-
-    results = (
-        service.files()
-        .list(
-            q=f"'{folder_id}' in parents and trashed=false",
-            fields="files(id, name, createdTime, size)",
-            pageSize=100,
-        )
-        .execute()
-    )
-    return results.get("files", [])
+    """List all non-trashed files in a Drive folder. Returns list of {id, name, createdTime}.
+    Retries once after resetting the service on transient SSL/network errors.
+    """
+    global _SERVICE
+    for attempt in range(2):
+        try:
+            service = authenticate()
+            folder_id = _resolve_folder_id(drive_folder)
+            results = (
+                service.files()
+                .list(
+                    q=f"'{folder_id}' in parents and trashed=false",
+                    fields="files(id, name, createdTime, size)",
+                    pageSize=100,
+                )
+                .execute()
+            )
+            return results.get("files", [])
+        except Exception as exc:
+            if attempt == 0 and _is_ssl_error(exc):
+                logger.warning("SSL/network error in list_files, resetting service: %s", exc)
+                _SERVICE = None
+                continue
+            raise
 
 
 def download_file(file_id: str, local_path: str | Path) -> None:
