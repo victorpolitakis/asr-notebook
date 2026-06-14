@@ -386,6 +386,7 @@ _DEFAULTS: dict[str, Any] = {
     "uploaded_filename": None,
     "active_job_id":     None,
     "pipeline_state":    "idle",   # idle | uploading | processing | done | error
+    "pipeline_error":    None,
     "transcript":        None,
     "summary":           None,
     "acc_result":        None,
@@ -401,8 +402,8 @@ for _k, _v in _DEFAULTS.items():
 
 
 def _reset_job() -> None:
-    for _k in ("active_job_id", "pipeline_state", "uploaded_filename",
-               "transcript", "summary", "poll_miss_count"):
+    for _k in ("active_job_id", "pipeline_state", "pipeline_error",
+               "uploaded_filename", "transcript", "summary", "poll_miss_count"):
         st.session_state[_k] = _DEFAULTS[_k]
     st.query_params.clear()
 
@@ -457,6 +458,7 @@ def _poll_job(job_id: str) -> None:
             _load_results(job_id)
         elif stage == "error":
             st.session_state.pipeline_state = "error"
+            st.session_state.pipeline_error = s.get("error")
     except Exception:
         pass
 
@@ -486,6 +488,7 @@ if not st.session_state.active_job_id:
                         _load_results(_qp_jid)
                     elif _stage == "error":
                         st.session_state.pipeline_state = "error"
+                        st.session_state.pipeline_error = _s.get("error")
                     # else: leave as "processing" — fragment will poll
             except Exception:
                 pass  # leave as "processing" — fragment will retry
@@ -642,7 +645,14 @@ def _page_upload() -> None:
         elif _ps == "done":
             _render_upload_done_summary()
         elif _ps == "error":
-            st.error("Pipeline error — check the Colab runtime logs.")
+            _err = st.session_state.pipeline_error
+            if not _err:
+                _err_msg = "No error details found. The Colab watcher may not be running — start Cell 6 in the notebook."
+            elif "not running" in _err.lower() or "Pipeline returned False" in _err:
+                _err_msg = f"Pipeline failed: {_err}\n\nMake sure the Colab watcher (Cell 6) is active."
+            else:
+                _err_msg = f"Pipeline error: {_err}"
+            st.error(_err_msg)
             if st.button("↑ New Upload", key="btn_new_upload_err"):
                 _reset_job()
                 st.rerun()
