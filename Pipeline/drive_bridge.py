@@ -50,6 +50,7 @@ else:
 
 _SCOPES = ["https://www.googleapis.com/auth/drive"]
 _SERVICE: Any = None
+_FOLDER_CACHE: dict[str, str] = {}  # logical path → Drive folder ID
 
 
 def _is_ssl_error(exc: Exception) -> bool:
@@ -191,8 +192,10 @@ def get_or_create_folder(name: str, parent_id: str | None = None) -> str:
 
 
 def _resolve_folder_id(folder_name: str) -> str:
-    """Get folder ID for a logical path like 'ece22073/input'."""
-    return get_or_create_folder(folder_name)
+    """Get folder ID for a logical path like 'ece22073/input'. Caches results."""
+    if folder_name not in _FOLDER_CACHE:
+        _FOLDER_CACHE[folder_name] = get_or_create_folder(folder_name)
+    return _FOLDER_CACHE[folder_name]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -422,14 +425,29 @@ def generate_job_id() -> str:
 def list_job_history() -> list[dict]:
     """Return all ASR job records from the output folder, newest first.
     Each entry: {job_id, stage, updated_at, error, drive_created, filename}.
-    Reads status.json + meta.json (written by Streamlit on upload) per job folder.
+    Reads status.json + meta.json per job folder.
     Skips system folders (e.g. 'podcasts') by requiring 8-char hex names.
+
+    Uses direct folder IDs from the top-level listing to avoid O(N) path
+    resolution calls — reduces API calls from ~5N to ~2N+1.
     """
     import re
     _JOB_RE = re.compile(r"^[0-9a-f]{8}$")
 
     try:
-        top_items = list_files(config.DRIVE_OUTPUT)
+        # Resolve output folder once (cached after first call)
+        output_folder_id = _resolve_folder_id(config.DRIVE_OUTPUT)
+        service = authenticate()
+        top_resp = (
+            service.files()
+            .list(
+                q=f"'{output_folder_id}' in parents and trashed=false",
+                fields="files(id, name, createdTime, mimeType)",
+                pageSize=100,
+            )
+            .execute()
+        )
+        top_items = top_resp.get("files", [])
     except Exception as exc:
         logger.warning("list_job_history: %s", exc)
         return []
@@ -440,8 +458,22 @@ def list_job_history() -> list[dict]:
         if not _JOB_RE.match(name):
             continue
         try:
-            job_files = list_files(f"{config.DRIVE_OUTPUT}/{name}")
-            # Sort job files by createdTime descending to get the newest files first
+            # Use the folder ID directly — no path resolution needed
+            job_folder_id = item["id"]
+            # Cache this folder ID so other callers don't re-resolve it
+            _FOLDER_CACHE[f"{config.DRIVE_OUTPUT}/{name}"] = job_folder_id
+
+            job_resp = (
+                service.files()
+                .list(
+                    q=f"'{job_folder_id}' in parents and trashed=false",
+                    fields="files(id, name, createdTime)",
+                    pageSize=50,
+                )
+                .execute()
+            )
+            job_files = job_resp.get("files", [])
+
             try:
                 job_files_sorted = sorted(job_files, key=lambda x: x.get("createdTime", ""), reverse=True)
             except Exception:
