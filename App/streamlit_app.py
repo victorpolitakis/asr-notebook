@@ -371,9 +371,14 @@ hr {
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* Hide the "add another file" (+) button — single upload only */
-[data-testid="stFileUploaderFile"] ~ div button,
-[data-testid="stFileUploader"] [data-testid="stBaseButton-minimal"] { display: none !important; }
+/* Hide the "add more files" (+) button — single upload only */
+[data-testid="stFileUploaderFile"] ~ button,
+[data-testid="stFileUploaderFile"] + button,
+[data-testid="stFileUploader"] li ~ button,
+[data-testid="stFileUploader"] ul ~ button,
+[data-testid="stFileUploader"] [data-testid="stBaseButton-minimal"],
+[data-testid="stFileUploader"] button[aria-label="Add file"],
+[data-testid="stFileUploader"] button[aria-label="add file"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
