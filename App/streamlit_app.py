@@ -379,7 +379,7 @@ def _segments_from_transcript(t: dict) -> list[dict]:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Page: Upload & Transcribe
+# Page: Upload
 # ══════════════════════════════════════════════════════════════════════════
 
 def _page_upload() -> None:
@@ -397,7 +397,7 @@ def _page_upload() -> None:
     if jid and _ps != "idle":
         _render_job_card(jid, fname or "—", _ps)
         if _ps == "processing":
-            st.caption(f"Colab is processing. Auto-refreshes every {config.LOCAL_POLL_INTERVAL_SEC} s.")
+            st.caption(f"Uploaded. Colab is transcribing — auto-updates every {config.LOCAL_POLL_INTERVAL_SEC} s.")
         elif _ps == "done":
             _render_upload_done_summary()
         elif _ps == "error":
@@ -408,12 +408,16 @@ def _page_upload() -> None:
         return
 
     # ── Idle: show uploader ──
-    st.caption("Upload an audio file to send to Colab for transcription and analysis.")
-    uploaded = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"])
+    st.caption("Select an audio file — transcription starts automatically.")
+    uploaded = st.file_uploader(
+        "Choose an audio file",
+        type=["wav", "mp3", "m4a"],
+        accept_multiple_files=False,
+    )
     if uploaded:
-        if st.button("Transcribe", type="primary"):
+        with st.spinner(f"Uploading {uploaded.name} to Drive…"):
             _upload_and_submit(uploaded)
-            st.rerun()
+        st.rerun()
 
 
 def _upload_and_submit(f: Any) -> None:
