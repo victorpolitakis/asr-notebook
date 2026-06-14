@@ -889,40 +889,39 @@ def _results_chat(s: dict) -> None:
         + "\n\n".join(context_parts)
     )
 
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    if st.session_state.chat_history:
-        if st.button("Clear", key="chat_clear"):
-            st.session_state.chat_history = []
-            st.rerun()
+    # Declare container BEFORE chat_input so messages always render above the input box.
+    chat_container = st.container()
 
     user_input = st.chat_input("Ask about the transcript…")
+
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
+        with st.spinner(""):
+            try:
+                from openai import OpenAI as _OAI
+                client = _OAI(api_key=api_key, base_url=config.LLM_BASE_URL)
+                resp = client.chat.completions.create(
+                    model=os.environ.get("LLM_MODEL", config.LLM_MODEL),
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        *st.session_state.chat_history,
+                    ],
+                    max_tokens=800,
+                )
+                answer = resp.choices[0].message.content or ""
+            except Exception as exc:
+                answer = f"Error: {exc}"
+        st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        st.rerun()
 
-        with st.chat_message("assistant"):
-            with st.spinner(""):
-                try:
-                    from openai import OpenAI as _OAI
-                    client = _OAI(api_key=api_key, base_url=config.LLM_BASE_URL)
-                    resp = client.chat.completions.create(
-                        model=os.environ.get("LLM_MODEL", config.LLM_MODEL),
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            *st.session_state.chat_history,
-                        ],
-                        max_tokens=800,
-                    )
-                    answer = resp.choices[0].message.content or ""
-                except Exception as exc:
-                    answer = f"Error: {exc}"
-
-            st.markdown(answer)
-            st.session_state.chat_history.append({"role": "assistant", "content": answer})
+    with chat_container:
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+        if st.session_state.chat_history:
+            if st.button("Clear", key="chat_clear"):
+                st.session_state.chat_history = []
+                st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════
