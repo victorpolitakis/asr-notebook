@@ -685,6 +685,16 @@ def _upload_and_submit(f: Any) -> None:
     st.query_params["job_id"] = jid
     st.query_params["fname"]  = f.name
 
+    # Clear any stale audio files left in the input folder from previous broken
+    # runs so the Colab watcher doesn't pick them up instead of the new file.
+    _AUDIO_EXTS = {".wav", ".mp3", ".m4a"}
+    try:
+        for _stale in db.list_files(config.DRIVE_INPUT):
+            if Path(_stale.get("name", "")).suffix.lower() in _AUDIO_EXTS:
+                db.delete_file(_stale["id"])
+    except Exception:
+        pass
+
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(f.read())
         tmp_path = tmp.name
