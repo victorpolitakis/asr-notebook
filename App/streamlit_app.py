@@ -344,6 +344,38 @@ hr {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+.chapter-list { margin: 0 0 4px 0; }
+.chapter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.chapter-row:last-child { border-bottom: none; }
+.chapter-ts {
+  font-family: var(--fn-mono);
+  font-size: 10px;
+  color: var(--amber);
+  letter-spacing: 0.1em;
+  min-width: 48px;
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+.chapter-title {
+  font-family: var(--fn-body);
+  font-size: 13px;
+  color: var(--text);
+  display: block;
+  margin-bottom: 2px;
+}
+.chapter-summary {
+  font-family: var(--fn-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  display: block;
+  letter-spacing: 0.04em;
+}
 .jcard {
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -954,6 +986,31 @@ def _results_chat(s: dict) -> None:
                 st.rerun()
 
 
+def _render_chapters(chs: list[dict]) -> None:
+    if not chs:
+        return
+    rows = []
+    for ch in chs:
+        ts    = _fmt_time(ch.get("start_sec", 0))
+        title = ch.get("title", "")
+        summ  = ch.get("summary", "")
+        rows.append(
+            f'<div class="chapter-row">'
+            f'<span class="chapter-ts">{ts}</span>'
+            f'<div>'
+            f'<span class="chapter-title">{title}</span>'
+            f'<span class="chapter-summary">{summ}</span>'
+            f'</div>'
+            f'</div>'
+        )
+    header = (
+        '<div style="font-family:var(--fn-mono);font-size:9px;color:var(--amber-dim);'
+        'letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px">Chapters</div>'
+    )
+    st.markdown(f'<div class="chapter-list">{header}{"".join(rows)}</div>', unsafe_allow_html=True)
+    st.divider()
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Page: Results
 # ══════════════════════════════════════════════════════════════════════════
@@ -973,6 +1030,7 @@ def _page_results() -> None:
     tab_tr, tab_ent, tab_sum, tab_chat = st.tabs(["Transcript", "Entities", "Summaries", "Chat"])
 
     with tab_tr:
+        _render_chapters(s.get("chapters") or [])
         model_trans = st.session_state.model_transcripts or {}
         # Always include the main transcript (whisper-turbo from run_pipeline)
         main_dur = t.get("total_duration_sec", 0) if t else 0
@@ -1096,9 +1154,7 @@ def _results_summaries(s: dict) -> None:
 
     if chs:
         st.divider()
-        st.markdown("**Chapters**")
-        for ch in chs:
-            st.markdown(f"`[{_fmt_time(ch.get('timestamp', 0))}]` {ch.get('title', '')}")
+        _render_chapters(chs)
 
 
 # ══════════════════════════════════════════════════════════════════════════
