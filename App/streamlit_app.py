@@ -399,6 +399,8 @@ hr {
   color: var(--text) !important;
   font-family: var(--fn-body) !important;
   font-size: 13px !important;
+  resize: none !important;
+  overflow: hidden !important;
 }
 </style>
 """, unsafe_allow_html=True)
