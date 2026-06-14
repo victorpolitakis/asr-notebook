@@ -737,11 +737,22 @@ def _upload_and_submit(f: Any, selected_models: list[str]) -> None:
 
     # Clear any stale audio files left in the input folder from previous broken
     # runs so the Colab watcher doesn't pick them up instead of the new file.
+    # Only delete files older than 20 minutes to avoid deleting currently transcribing files.
     _AUDIO_EXTS = {".wav", ".mp3", ".m4a"}
     try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
         for _stale in db.list_files(config.DRIVE_INPUT):
             if Path(_stale.get("name", "")).suffix.lower() in _AUDIO_EXTS:
-                db.delete_file(_stale["id"])
+                ct_str = _stale.get("createdTime")
+                if ct_str:
+                    try:
+                        ct = datetime.fromisoformat(ct_str.replace("Z", "+00:00"))
+                        age_minutes = (now - ct).total_seconds() / 60.0
+                        if age_minutes > 20:
+                            db.delete_file(_stale["id"])
+                    except Exception:
+                        pass
     except Exception:
         pass
 

@@ -197,7 +197,10 @@ def _handle_asr_job(file_info: dict) -> None:
         )
 
         # Archive the input file
-        db.archive_input_file(file_id)
+        try:
+            db.archive_input_file(file_id)
+        except Exception as ae:
+            logger.warning("Failed to archive input file %s: %s", file_id, ae)
 
         # Clean up temp
         os.unlink(tmp_path)
