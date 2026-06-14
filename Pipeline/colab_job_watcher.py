@@ -221,6 +221,10 @@ def _handle_asr_job(file_info: dict) -> None:
                     json.dump(model_transcript, _f, indent=2, ensure_ascii=False)
                 db.upload_file(str(t_json), job_output)
                 logger.info("✓ Extra model %s — done", model_name)
+            except ModuleNotFoundError as _me:
+                logger.warning("⏭  Extra model %s skipped — missing dependency: %s "
+                               "(set INSTALL_NEMO=True in Cell 1 and re-run all cells)",
+                               model_name, _me.name)
             except Exception as _me:
                 logger.error("✗ Extra model %s failed: %s", model_name, _me, exc_info=True)
 
