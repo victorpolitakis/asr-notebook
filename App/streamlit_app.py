@@ -416,6 +416,7 @@ _DEFAULTS: dict[str, Any] = {
     "transcript":        None,
     "summary":           None,
     "acc_result":        None,
+    "acc_gt":            None,
     "history_items":     None,
     "drive_connected":   False,
     "_page":             "Upload",
@@ -453,7 +454,7 @@ def _drive_connect_silent() -> None:
 
 
 def _load_results(job_id: str) -> None:
-    """Download transcript.json + summary_outputs.json + model-specific transcripts from Drive into session_state."""
+    """Download transcript.json + summary_outputs.json + model-specific transcripts + accuracy from Drive into session_state."""
     try:
         st.session_state.model_transcripts = {}
         for f in db.list_files(f"{config.DRIVE_OUTPUT}/{job_id}"):
@@ -464,6 +465,10 @@ def _load_results(job_id: str) -> None:
             elif f["name"].startswith("transcript_") and f["name"].endswith(".json"):
                 model_name = f["name"][11:-5]
                 st.session_state.model_transcripts[model_name] = db.read_json(f["id"])
+            elif f["name"] == "accuracy_result.json":
+                acc_data = db.read_json(f["id"])
+                st.session_state.acc_gt     = acc_data.get("gt_text", "")
+                st.session_state.acc_result = acc_data.get("results")
     except Exception:
         pass
 
@@ -1093,7 +1098,10 @@ def _acc_single() -> None:
         return
 
     up_ref = st.file_uploader("Ground Truth (.txt)", type=["txt"], key="acc_s_ref")
-    ref = up_ref.read().decode("utf-8", errors="replace") if up_ref else ""
+    if up_ref:
+        ref = up_ref.read().decode("utf-8", errors="replace")
+    else:
+        ref = st.session_state.acc_gt or ""
 
     if not ref.strip():
         st.caption(f"Available transcripts: {', '.join(hypotheses.keys())}")
@@ -1101,10 +1109,23 @@ def _acc_single() -> None:
 
     if st.button("Compare all models", type="primary"):
         with st.spinner("Computing metrics…"):
-            st.session_state.acc_result = {
+            results = {
                 name: cm.compute_all_metrics(hyp, ref, label=name)
                 for name, hyp in hypotheses.items()
             }
+            st.session_state.acc_result = results
+            st.session_state.acc_gt = ref
+            # Persist to Drive so it survives tab switches and history reload
+            job_id = st.session_state.get("active_job_id")
+            if job_id:
+                try:
+                    db.write_json(
+                        {"gt_text": ref, "results": results},
+                        f"{config.DRIVE_OUTPUT}/{job_id}",
+                        "accuracy_result.json",
+                    )
+                except Exception:
+                    pass
 
     raw = st.session_state.acc_result
     # Guard against stale single-result dict from old session format
@@ -1275,7 +1296,8 @@ def _page_history() -> None:
                     st.session_state.active_job_id    = jid
                     st.session_state.uploaded_filename = ""
                     st.session_state.pipeline_state   = "done"
-                    st.session_state.acc_result       = None
+                    st.session_state.acc_result = None
+                    st.session_state.acc_gt     = None
                     _load_results(jid)
                     st.query_params["job_id"] = jid
                 st.session_state._page = "Results"
