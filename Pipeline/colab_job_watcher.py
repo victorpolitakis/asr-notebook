@@ -81,6 +81,17 @@ def _run_extra_model(model_name: str, audio_path: str) -> str:
             result_holder["text"] = models_registry.transcribe_with_model(model_name, audio_path)
         except Exception as exc:
             result_holder["exc"] = exc
+        finally:
+            # Drain pending async tasks (e.g. httpx connection pool teardown from
+            # transformers/huggingface_hub) before closing the loop, to suppress
+            # "Task exception was never retrieved / Event loop is closed" warnings.
+            try:
+                pending = _asyncio.all_tasks(loop)
+                if pending:
+                    loop.run_until_complete(_asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            loop.close()
 
     t = threading.Thread(target=_run)
     t.start()
