@@ -69,8 +69,8 @@ def _handle_asr_job(file_info: dict) -> None:
     """Download a WAV from Drive, run the pipeline, upload results."""
     file_id = file_info["id"]
     filename = file_info["name"]
-    # Derive job_id from filename (Streamlit uploads as {job_id}.wav)
-    job_id = filename.replace(".wav", "") if filename.endswith(".wav") else db.generate_job_id()
+    # Derive job_id from filename stem (Streamlit uploads as {job_id}.wav/.mp3/.m4a)
+    job_id = Path(filename).stem
     logger.info("🎙️ ASR job %s — starting for %s", job_id, filename)
 
     try:
@@ -244,7 +244,7 @@ def _write_status_fs(job_id: str, status: dict) -> None:
 
 def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
     """Process a WAV file directly from the mounted Drive filesystem."""
-    job_id = filename.replace(".wav", "") if filename.endswith(".wav") else db.generate_job_id()
+    job_id = Path(filename).stem
     logger.info("🎙️ ASR job %s — starting for %s", job_id, filename)
 
     try:
