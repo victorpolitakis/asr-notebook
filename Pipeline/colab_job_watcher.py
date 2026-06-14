@@ -85,25 +85,80 @@ def _handle_asr_job(file_info: dict) -> None:
         db.download_file(file_id, tmp_path)
         logger.info("  Downloaded %s → %s", filename, tmp_path)
 
+        # Retrieve selected models from meta.json in output/{job_id}/
+        selected_models = ["whisper-turbo"]
+        try:
+            job_output = f"{config.DRIVE_OUTPUT}/{job_id}"
+            job_files = db.list_files(job_output)
+            meta_id = [jf["id"] for jf in job_files if jf["name"] == "meta.json"]
+            if meta_id:
+                meta = db.read_json(meta_id[0])
+                selected_models = meta.get("selected_models", ["whisper-turbo"])
+        except Exception as e:
+            logger.warning("Could not read selected_models from meta.json: %s", e)
+
         db.write_status(
             job_id,
             _make_status(job_id, "asr", "asr", progress_pct=0.2, eta_seconds=500),
         )
 
-        # Run the pipeline in a separate thread with its own event loop.
-        # This isolates it from Colab's IPython event loop — no nesting.
-        import threading
-        import asyncio as _asyncio
-        result_holder: dict[str, Any] = {}
-        def _run_isolated() -> None:
-            loop = _asyncio.new_event_loop()
-            _asyncio.set_event_loop(loop)
-            import run_pipeline
-            result_holder["success"] = run_pipeline.run_pipeline(tmp_path)
-        t = threading.Thread(target=_run_isolated)
-        t.start()
-        t.join()
-        success = result_holder.get("success", False)
+        # Run transcription for each selected model
+        import models_registry
+        results_dir = Path(__file__).parent.parent / "Results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Clean up old transcripts in Results directory
+        for p in results_dir.glob("transcript_*"):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
+        success = True
+        for idx, model_name in enumerate(selected_models):
+            logger.info("Running transcription with model: %s", model_name)
+            try:
+                db.write_status(
+                    job_id,
+                    _make_status(job_id, "asr", f"transcribing_{model_name}", progress_pct=0.2 + 0.6 * (idx / len(selected_models)), eta_seconds=300),
+                )
+                
+                raw_text = models_registry.transcribe_with_model(model_name, tmp_path)
+                
+                # Apply normalization
+                import transcript_normalizer as tn
+                norm_text = raw_text
+                if tn.ENABLE_NORMALIZATION:
+                    norm_text = tn.normalize_transcript(raw_text) or raw_text
+                
+                model_transcript = {
+                    "source_file": filename,
+                    "total_duration_sec": 30.0,
+                    "languages_detected": ["el" if "el" in model_name else "en"],
+                    "speakers_detected": ["Speaker A"],
+                    "full_text": raw_text,
+                    "normalized_full_text": norm_text,
+                    "model_name": model_name,
+                    "chunks": [{"segments": [{"speaker": "Speaker A", "text": raw_text, "start": 0.0}]}]
+                }
+                
+                # Save to local Results folder
+                t_json_path = results_dir / f"transcript_{model_name}.json"
+                t_txt_path = results_dir / f"transcript_{model_name}.txt"
+                
+                with open(t_json_path, "w", encoding="utf-8") as f:
+                    json.dump(model_transcript, f, indent=2, ensure_ascii=False)
+                t_txt_path.write_text(raw_text, encoding="utf-8")
+                
+                # Copy to default for the first selected model so standard pipeline runs next stages
+                if idx == 0:
+                    with open(results_dir / "transcript.json", "w", encoding="utf-8") as f:
+                        json.dump(model_transcript, f, indent=2, ensure_ascii=False)
+                    (results_dir / "transcript.txt").write_text(raw_text, encoding="utf-8")
+                    
+            except Exception as e:
+                logger.error("Error transcribing with model %s: %s", model_name, e)
+                success = False
 
         db.write_status(
             job_id,
@@ -111,7 +166,6 @@ def _handle_asr_job(file_info: dict) -> None:
         )
 
         # Upload results from Politakis/results/ to Drive
-        results_dir = Path(__file__).parent.parent / "Results"
         job_output = f"{config.DRIVE_OUTPUT}/{job_id}"
         db.get_or_create_folder(job_output)
 
@@ -121,6 +175,12 @@ def _handle_asr_job(file_info: dict) -> None:
             rp = results_dir / result_file
             if rp.exists():
                 db.upload_file(str(rp), job_output)
+
+        # Upload dynamic transcripts for each model
+        for p in results_dir.glob("transcript_*.json"):
+            db.upload_file(str(p), job_output)
+        for p in results_dir.glob("transcript_*.txt"):
+            db.upload_file(str(p), job_output)
 
         # Upload normalized_diarized_transcript.txt if it exists (Phase 5 output)
         ndt = results_dir / "normalized_diarized_transcript.txt"
@@ -133,7 +193,7 @@ def _handle_asr_job(file_info: dict) -> None:
         db.write_status(
             job_id,
             _make_status(job_id, "asr", state, progress_pct=1.0, eta_seconds=0,
-                         error=None if success else "Pipeline returned False"),
+                         error=None if success else "ASR pipeline failed for one or more models"),
         )
 
         # Archive the input file

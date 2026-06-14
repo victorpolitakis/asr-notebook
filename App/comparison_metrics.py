@@ -73,6 +73,19 @@ def _aggressive_normalize(text: str) -> str:
     return text.strip()
 
 
+def _normalize_for_comparison(text: str) -> str:
+    if not text:
+        return ""
+    text = text.lower()
+    # Replace hyphens/dashes with spaces
+    text = text.replace("-", " ").replace("—", " ").replace("–", " ")
+    # Remove common English and Greek punctuation, quotes, brackets, and symbols
+    text = re.sub(r'[.,;:!?!"\'()«»“”‘’·]', "", text)
+    # Remove multiple spaces and strip
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
 # ═══════════════════════════════════════════════════════════════
 # WER / CER
 # ═══════════════════════════════════════════════════════════════
@@ -230,30 +243,31 @@ def generate_diff_html(
 def compute_all_metrics(
     hypothesis: str, reference: str, label: str = ""
 ) -> dict[str, Any]:
-    hyp_read = compute_readability(hypothesis)
-    ref_read = compute_readability(reference)
-    wer_data = compute_wer(hypothesis, reference)
-    rouge_data = compute_rouge(hypothesis, reference)
-    bleu_data = compute_bleu(hypothesis, reference)
-    diff_word = generate_diff_html(reference, hypothesis, mode="word")
-    diff_char = generate_diff_html(reference, hypothesis, mode="char")
+    norm_hyp = _normalize_for_comparison(hypothesis)
+    norm_ref = _normalize_for_comparison(reference)
+
+    hyp_read = compute_readability(norm_hyp)
+    ref_read = compute_readability(norm_ref)
+    wer_data = compute_wer(norm_hyp, norm_ref)
+    rouge_data = compute_rouge(norm_hyp, norm_ref)
+    bleu_data = compute_bleu(norm_hyp, norm_ref)
+    diff_word = generate_diff_html(norm_ref, norm_hyp, mode="word")
 
     return {
         "label": label or "Comparison",
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
         "hypothesis": {
-            "text_preview": hypothesis[:500] + ("…" if len(hypothesis) > 500 else ""),
+            "text_preview": norm_hyp[:500] + ("…" if len(norm_hyp) > 500 else ""),
             "readability": hyp_read,
         },
         "reference": {
-            "text_preview": reference[:500] + ("…" if len(reference) > 500 else ""),
+            "text_preview": norm_ref[:500] + ("…" if len(norm_ref) > 500 else ""),
             "readability": ref_read,
         },
         "wer": wer_data,
         "rouge": rouge_data,
         "bleu": bleu_data,
         "diff_word_html": diff_word,
-        "diff_char_html": diff_char,
     }
 
 

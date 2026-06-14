@@ -205,19 +205,28 @@ def upload_file(
     *,
     filename: str | None = None,
 ) -> str:
-    """Upload a file to Drive. Returns the Drive file ID."""
+    """Upload a file to Drive, overwriting if it already exists. Returns the Drive file ID."""
     service = authenticate()
     local_path = Path(local_path)
     target_name = filename or local_path.name
-    folder_id = _resolve_folder_id(drive_folder)
+    target_name_escaped = target_name.replace("'", "\\'")
+    query = f"'{folder_id}' in parents and name='{target_name_escaped}' and trashed=false"
+    existing = service.files().list(q=query, fields="files(id)", pageSize=1).execute().get("files", [])
 
     media = MediaFileUpload(
         str(local_path), mimetype="application/octet-stream", resumable=True
     )
-    file_meta = {"name": target_name, "parents": [folder_id]}
-    f = service.files().create(body=file_meta, media_body=media, fields="id").execute()
-    logger.info("Drive: uploaded '%s' → %s/%s (id: %s)", local_path.name, drive_folder, target_name, f["id"])
-    return f["id"]
+
+    if existing:
+        file_id = existing[0]["id"]
+        f = service.files().update(fileId=file_id, media_body=media, fields="id").execute()
+        logger.info("Drive: updated '%s' → %s/%s (id: %s)", local_path.name, drive_folder, target_name, file_id)
+        return file_id
+    else:
+        file_meta = {"name": target_name, "parents": [folder_id]}
+        f = service.files().create(body=file_meta, media_body=media, fields="id").execute()
+        logger.info("Drive: uploaded '%s' → %s/%s (id: %s)", local_path.name, drive_folder, target_name, f["id"])
+        return f["id"]
 
 
 def upload_bytes(
@@ -227,17 +236,28 @@ def upload_bytes(
     *,
     mimetype: str = "application/octet-stream",
 ) -> str:
-    """Upload raw bytes to Drive. Returns file ID."""
+    """Upload raw bytes to Drive, overwriting if the file already exists. Returns file ID."""
     service = authenticate()
     folder_id = _resolve_folder_id(drive_folder)
+
+    filename_escaped = filename.replace("'", "\\'")
+    query = f"'{folder_id}' in parents and name='{filename_escaped}' and trashed=false"
+    existing = service.files().list(q=query, fields="files(id)", pageSize=1).execute().get("files", [])
 
     from googleapiclient.http import MediaIoBaseUpload
     fh = io.BytesIO(data)
     media = MediaIoBaseUpload(fh, mimetype=mimetype, resumable=True)
-    file_meta = {"name": filename, "parents": [folder_id]}
-    f = service.files().create(body=file_meta, media_body=media, fields="id").execute()
-    logger.info("Drive: uploaded %d bytes → %s/%s", len(data), drive_folder, filename)
-    return f["id"]
+
+    if existing:
+        file_id = existing[0]["id"]
+        f = service.files().update(fileId=file_id, media_body=media, fields="id").execute()
+        logger.info("Drive: updated %d bytes → %s/%s (id: %s)", len(data), drive_folder, filename, file_id)
+        return file_id
+    else:
+        file_meta = {"name": filename, "parents": [folder_id]}
+        f = service.files().create(body=file_meta, media_body=media, fields="id").execute()
+        logger.info("Drive: uploaded %d bytes → %s/%s (id: %s)", len(data), drive_folder, filename, f["id"])
+        return f["id"]
 
 
 def list_files(drive_folder: str) -> list[dict]:
@@ -364,7 +384,12 @@ def read_status(job_id: str) -> config.StatusDict | None:
     """Read status.json for a job. Returns None if not found."""
     try:
         files = list_files(f"{config.DRIVE_OUTPUT}/{job_id}")
-        for f in files:
+        # Sort files by createdTime descending to get the newest status.json
+        try:
+            files_sorted = sorted(files, key=lambda x: x.get("createdTime", ""), reverse=True)
+        except Exception:
+            files_sorted = files
+        for f in files_sorted:
             if f["name"] == "status.json":
                 return read_json(f["id"])
     except Exception as e:
@@ -415,11 +440,17 @@ def list_job_history() -> list[dict]:
             continue
         try:
             job_files = list_files(f"{config.DRIVE_OUTPUT}/{name}")
+            # Sort job files by createdTime descending to get the newest files first
+            try:
+                job_files_sorted = sorted(job_files, key=lambda x: x.get("createdTime", ""), reverse=True)
+            except Exception:
+                job_files_sorted = job_files
+
             status_id = meta_id = None
-            for jf in job_files:
-                if jf["name"] == "status.json":
+            for jf in job_files_sorted:
+                if jf["name"] == "status.json" and not status_id:
                     status_id = jf["id"]
-                elif jf["name"] == "meta.json":
+                elif jf["name"] == "meta.json" and not meta_id:
                     meta_id = jf["id"]
 
             if not status_id:

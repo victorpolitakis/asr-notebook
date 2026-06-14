@@ -421,6 +421,7 @@ _DEFAULTS: dict[str, Any] = {
     "_page":             "Upload",
     "poll_miss_count":   0,
     "chat_history":      [],
+    "model_transcripts": {},
 }
 
 for _k, _v in _DEFAULTS.items():
@@ -430,7 +431,7 @@ for _k, _v in _DEFAULTS.items():
 
 def _reset_job() -> None:
     for _k in ("active_job_id", "pipeline_state", "pipeline_error",
-               "uploaded_filename", "transcript", "summary", "poll_miss_count"):
+               "uploaded_filename", "transcript", "summary", "poll_miss_count", "model_transcripts"):
         st.session_state[_k] = _DEFAULTS[_k]
     st.query_params.clear()
 
@@ -452,13 +453,17 @@ def _drive_connect_silent() -> None:
 
 
 def _load_results(job_id: str) -> None:
-    """Download transcript.json + summary_outputs.json from Drive into session_state."""
+    """Download transcript.json + summary_outputs.json + model-specific transcripts from Drive into session_state."""
     try:
+        st.session_state.model_transcripts = {}
         for f in db.list_files(f"{config.DRIVE_OUTPUT}/{job_id}"):
             if f["name"] == "transcript.json":
                 st.session_state.transcript = db.read_json(f["id"])
             elif f["name"] == "summary_outputs.json":
                 st.session_state.summary = db.read_json(f["id"])
+            elif f["name"].startswith("transcript_") and f["name"].endswith(".json"):
+                model_name = f["name"][11:-5]
+                st.session_state.model_transcripts[model_name] = db.read_json(f["id"])
     except Exception:
         pass
 
@@ -691,7 +696,13 @@ def _page_upload() -> None:
         return
 
     # ── Idle: show uploader ──
-    st.caption("Select an audio file — transcription starts automatically.")
+    st.caption("Select ASR models to compare and then choose an audio file.")
+    selected_models = st.multiselect(
+        "ASR Models to compare",
+        ["Whisper Turbo", "Whisper Large v3", "Nvidia Canary", "Nvidia Parakeet", "Qwen ASR", "Nemotron"],
+        default=["Whisper Turbo"],
+        key="selected_models_picker"
+    )
     uploaded = st.file_uploader(
         "Choose an audio file",
         type=["wav", "mp3", "m4a"],
@@ -699,11 +710,11 @@ def _page_upload() -> None:
     )
     if uploaded:
         with st.spinner(f"Uploading {uploaded.name} to Drive…"):
-            _upload_and_submit(uploaded)
+            _upload_and_submit(uploaded, selected_models)
         st.rerun()
 
 
-def _upload_and_submit(f: Any) -> None:
+def _upload_and_submit(f: Any, selected_models: list[str]) -> None:
     jid = db.generate_job_id()
     ext = Path(f.name).suffix or ".wav"
     st.session_state.active_job_id     = jid
@@ -711,6 +722,18 @@ def _upload_and_submit(f: Any) -> None:
     st.session_state.pipeline_state    = "uploading"
     st.query_params["job_id"] = jid
     st.query_params["fname"]  = f.name
+
+    name_map = {
+        "Whisper Turbo": "whisper-turbo",
+        "Whisper Large v3": "whisper-large-v3",
+        "Nvidia Canary": "canary",
+        "Nvidia Parakeet": "parakeet",
+        "Qwen ASR": "qwen",
+        "Nemotron": "nemotron"
+    }
+    model_keys = [name_map[m] for m in selected_models if m in name_map]
+    if not model_keys:
+        model_keys = ["whisper-turbo"]
 
     # Clear any stale audio files left in the input folder from previous broken
     # runs so the Colab watcher doesn't pick them up instead of the new file.
@@ -730,7 +753,11 @@ def _upload_and_submit(f: Any) -> None:
         st.session_state.pipeline_state = "processing"
         try:
             db.write_json(
-                {"filename": f.name, "uploaded_at": datetime.now(timezone.utc).isoformat()},
+                {
+                    "filename": f.name,
+                    "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                    "selected_models": model_keys
+                },
                 f"{config.DRIVE_OUTPUT}/{jid}",
                 "meta.json",
             )
@@ -889,7 +916,23 @@ def _page_results() -> None:
     tab_tr, tab_ent, tab_sum, tab_chat = st.tabs(["Transcript", "Entities", "Summaries", "Chat"])
 
     with tab_tr:
-        _results_transcript(t)
+        model_trans = st.session_state.model_transcripts
+        if model_trans:
+            display_map = {
+                "whisper-turbo": "Whisper Turbo",
+                "whisper-large-v3": "Whisper Large v3",
+                "canary": "Nvidia Canary",
+                "parakeet": "Nvidia Parakeet",
+                "qwen": "Qwen ASR",
+                "nemotron": "Nemotron"
+            }
+            avail_models = list(model_trans.keys())
+            model_tabs = st.tabs([display_map.get(m, m.upper()) for m in avail_models])
+            for m_idx, m_tab in enumerate(model_tabs):
+                with m_tab:
+                    _results_transcript(model_trans[avail_models[m_idx]])
+        else:
+            _results_transcript(t)
     with tab_ent:
         _results_entities(s)
     with tab_sum:
@@ -1016,13 +1059,35 @@ def _page_accuracy() -> None:
 
 def _acc_single() -> None:
     # Hypothesis is always the pipeline transcript — never uploaded manually
-    t   = st.session_state.transcript or {}
-    hyp = t.get("normalized_full_text") or t.get("full_text") or ""
+    model_trans = st.session_state.model_transcripts
+    selected_model_name = None
+
+    if model_trans:
+        display_map = {
+            "whisper-turbo": "Whisper Turbo",
+            "whisper-large-v3": "Whisper Large v3",
+            "canary": "Nvidia Canary",
+            "parakeet": "Nvidia Parakeet",
+            "qwen": "Qwen ASR",
+            "nemotron": "Nemotron"
+        }
+        avail_models = list(model_trans.keys())
+        selected_model_key = st.selectbox(
+            "Select model to compare",
+            avail_models,
+            format_func=lambda x: display_map.get(x, x.upper()),
+            key="acc_model_select"
+        )
+        t = model_trans[selected_model_key]
+        hyp = t.get("normalized_full_text") or t.get("full_text") or ""
+        selected_model_name = display_map.get(selected_model_key, selected_model_key.upper())
+    else:
+        t   = st.session_state.transcript or {}
+        hyp = t.get("normalized_full_text") or t.get("full_text") or ""
 
     if not hyp.strip():
         st.info("No transcript loaded. Go to **Upload** or **History** to load a job first.")
         return
-
 
     up_ref = st.file_uploader("Ground Truth (.txt)", type=["txt"], key="acc_s_ref")
     ref = up_ref.read().decode("utf-8", errors="replace") if up_ref else ""
@@ -1035,7 +1100,7 @@ def _acc_single() -> None:
 
     if st.button("Compare", type="primary", disabled=not ref.strip()):
         with st.spinner("Computing metrics…"):
-            st.session_state.acc_result = cm.compute_all_metrics(hyp, ref)
+            st.session_state.acc_result = cm.compute_all_metrics(hyp, ref, label=selected_model_name or "ASR")
 
     if r := st.session_state.acc_result:
         _acc_render_single(r)
@@ -1078,8 +1143,7 @@ def _acc_render_single(r: dict) -> None:
             {"": "Reference",  **rr},
         ]).set_index(""), use_container_width=True)
 
-    diff_mode = st.radio("Diff granularity", ["Word", "Character"], horizontal=True, key="acc_diff_g")
-    diff_html = r.get("diff_word_html" if diff_mode == "Word" else "diff_char_html", "")
+    diff_html = r.get("diff_word_html", "")
     if diff_html:
         st.markdown(f'<div class="diff-view">{diff_html}</div>', unsafe_allow_html=True)
 
