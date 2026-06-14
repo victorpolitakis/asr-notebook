@@ -97,9 +97,26 @@ The Colab notebook handles heavy ML compute on a T4 GPU.
    - `HF_TOKEN` — HuggingFace token for pyannote diarization
    - `OPENAI_API_KEY` — for LLM stages
 3. Run cells 1–4 in order (clone → install → auth → watcher)
-4. Cell 4 runs indefinitely — polls Drive every 10s for new audio files
+4. Cell 4 polls Drive every 10s and **auto-stops after 5 min of idle** (no new jobs) to preserve Colab runtime
 
 The watcher auto-processes new `.wav`, `.mp3`, and `.m4a` files dropped in `ece22073/input/`.
+
+### Switching Google Accounts (Colab)
+
+To make Colab read/write a different Drive account:
+
+1. **Runtime → Disconnect and delete runtime** — clears the cached Colab auth session
+2. Re-run all cells from the top
+3. When the auth cell runs, choose the new Google account in the browser prompt
+
+To make the **Streamlit app** write to a different Drive account:
+
+1. Replace `App/credentials.json` with the new account's OAuth credentials  
+   *(see [GOOGLE_CREDENTIALS_SETUP.md](GOOGLE_CREDENTIALS_SETUP.md) to create them)*
+2. Delete `App/token.json` — this holds the cached token for the old account
+3. Restart Streamlit → sidebar → **Connect Google Drive** → sign in with the new account
+
+> Both Colab and Streamlit must use the **same** Google account, otherwise uploads go to one Drive and the watcher polls a different one.
 
 ---
 
