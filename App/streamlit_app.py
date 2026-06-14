@@ -64,6 +64,7 @@ html, body, [class*="css"] { font-family: var(--fn-body) !important; }
 
 #MainMenu, footer { visibility: hidden; }
 [data-testid="stStatusWidget"] { visibility: hidden; }
+[data-testid="stHeader"] { background: transparent !important; border-bottom: none !important; }
 
 /* ═══════════════════════════════════════════════════════════
    APP BACKGROUND — warm grid
