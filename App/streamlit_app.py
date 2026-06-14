@@ -375,6 +375,9 @@ hr {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Hide the "add another file" (+) button — single upload only */
+[data-testid="stFileUploaderFile"] ~ div button,
+[data-testid="stFileUploader"] [data-testid="stBaseButton-minimal"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -393,6 +396,7 @@ _DEFAULTS: dict[str, Any] = {
     "history_items":     None,
     "drive_connected":   False,
     "_page":             "Upload",
+    "poll_miss_count":   0,
 }
 
 for _k, _v in _DEFAULTS.items():
@@ -401,7 +405,8 @@ for _k, _v in _DEFAULTS.items():
 
 
 def _reset_job() -> None:
-    for _k in ("active_job_id", "pipeline_state", "uploaded_filename", "transcript", "summary"):
+    for _k in ("active_job_id", "pipeline_state", "uploaded_filename",
+               "transcript", "summary", "poll_miss_count"):
         st.session_state[_k] = _DEFAULTS[_k]
     st.query_params.clear()
 
@@ -435,12 +440,21 @@ def _load_results(job_id: str) -> None:
         pass
 
 
+_POLL_MISS_LIMIT = 6  # 6 × 15 s = 90 s before auto-reset to idle
+
 def _poll_job(job_id: str) -> None:
-    """Read status.json from Drive. Transitions pipeline_state and loads results on done."""
+    """Read status.json from Drive. Transitions pipeline_state and loads results on done.
+    Auto-resets to idle after POLL_MISS_LIMIT consecutive polls with no status found
+    (handles stale job IDs left in the URL from a broken/mismatched session).
+    """
     try:
         s = db.read_status(job_id)
         if not s:
+            st.session_state.poll_miss_count += 1
+            if st.session_state.poll_miss_count >= _POLL_MISS_LIMIT:
+                _reset_job()
             return
+        st.session_state.poll_miss_count = 0
         stage = s.get("stage", "")
         if stage == "done":
             st.session_state.pipeline_state = "done"
@@ -572,10 +586,11 @@ with st.sidebar:
         except Exception:
             pass
 
-    # Reset button once job is in a terminal state
-    if _ps in ("done", "error"):
+    # Reset/cancel button — always visible once a job is active
+    if _ps != "idle":
         st.write("")
-        if st.button("New Job", key="sb_new_job", use_container_width=True):
+        _btn_lbl = "New Job" if _ps in ("done", "error") else "✕ Cancel"
+        if st.button(_btn_lbl, key="sb_new_job", use_container_width=True):
             _reset_job()
             st.session_state._page = "Upload"
             st.rerun()
