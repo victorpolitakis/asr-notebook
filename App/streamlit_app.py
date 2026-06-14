@@ -844,14 +844,34 @@ def _results_entities(s: dict) -> None:
         st.write("")
 
 
+def _flatten_summary(raw: Any) -> str:
+    """Convert any summary value (str | list | dict) to a plain display string."""
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, list):
+        return "\n".join(f"• {item}" for item in raw if item)
+    if isinstance(raw, dict):
+        parts: list[str] = []
+        if raw.get("overview"):
+            parts.append(str(raw["overview"]))
+        for k, lbl in [("bullet_points", "Key Points"),
+                        ("key_takeaways",  "Key Takeaways"),
+                        ("action_items",   "Action Items")]:
+            items = raw.get(k) or []
+            if items:
+                parts.append(f"\n{lbl}:")
+                parts.extend(f"  • {item}" for item in items)
+        return "\n".join(parts)
+    return ""
+
+
 def _results_summaries(s: dict) -> None:
     sums = s.get("summaries") or {}
     chs  = s.get("chapters")  or []
 
     cols = st.columns(3)
     for col, (title, key) in zip(cols, [("TL;DR", "tldr"), ("Executive", "executive"), ("Deep Dive", "deep_dive")]):
-        raw  = sums.get(key)
-        text = raw if isinstance(raw, str) and raw.strip() else ""
+        text = _flatten_summary(sums.get(key))
         with col:
             st.markdown(f"**{title}**")
             if text:
