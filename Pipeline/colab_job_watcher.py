@@ -76,12 +76,17 @@ def _run_extra_model(model_name: str, audio_path: str) -> str:
     def _run() -> None:
         loop = _asyncio.new_event_loop()
         _asyncio.set_event_loop(loop)
-        import models_registry
-        result_holder["text"] = models_registry.transcribe_with_model(model_name, audio_path)
+        try:
+            import models_registry
+            result_holder["text"] = models_registry.transcribe_with_model(model_name, audio_path)
+        except Exception as exc:
+            result_holder["exc"] = exc
 
     t = threading.Thread(target=_run)
     t.start()
     t.join()
+    if "exc" in result_holder:
+        raise result_holder["exc"]
     if "text" not in result_holder:
         raise RuntimeError(f"Thread for {model_name} produced no output")
     return result_holder["text"]

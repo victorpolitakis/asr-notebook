@@ -23,28 +23,27 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def transcribe_whisper(audio_path: str | Path, model_size: str = "turbo") -> str:
-    """Transcribe audio using faster-whisper with int8 quantization."""
+    """Transcribe audio using faster-whisper, passing the file path directly.
+
+    Avoids process_audio_file / SileroVAD to prevent torch.hub.load conflicts
+    when called from a background thread. Uses faster-whisper's built-in VAD.
+    """
     from faster_whisper import WhisperModel
-    from audio_processor import process_audio_file
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
-    
+
     logger.info("Loading faster-whisper %s on %s...", model_size, device)
     model = WhisperModel(model_size, device=device, compute_type=compute_type)
 
-    all_texts = []
-    # Process audio in chunks of ~30 seconds
-    for chunk in process_audio_file(str(audio_path), min_chunk_sec=28, max_chunk_sec=30):
-        if not chunk.get("is_speech"):
-            continue
-        segments, _ = model.transcribe(
-            chunk["audio_data"], language=None, vad_filter=False,
-            beam_size=3, task="transcribe"
-        )
-        all_texts.append(" ".join(s.text.strip() for s in segments))
-
-    return " ".join(all_texts).strip()
+    segments, _ = model.transcribe(
+        str(audio_path),
+        language=None,
+        vad_filter=True,
+        beam_size=3,
+        task="transcribe",
+    )
+    return " ".join(s.text.strip() for s in segments).strip()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
