@@ -239,22 +239,25 @@ _drive_connect_silent()
 # Restore job from URL after hard refresh (state lost, URL survives)
 if not st.session_state.active_job_id:
     _qp_jid = st.query_params.get("job_id")
-    if _qp_jid and st.session_state.drive_connected:
+    if _qp_jid:
         st.session_state.active_job_id     = _qp_jid
         st.session_state.uploaded_filename = st.query_params.get("fname", "")
-        try:
-            _s = db.read_status(_qp_jid)
-            if _s:
-                _stage = _s.get("stage", "")
-                if _stage == "done":
-                    st.session_state.pipeline_state = "done"
-                    _load_results(_qp_jid)
-                elif _stage == "error":
-                    st.session_state.pipeline_state = "error"
-                else:
-                    st.session_state.pipeline_state = "processing"
-        except Exception:
-            pass
+        # Default to processing so the card shows while we figure out real state.
+        # The polling fragment will update to done/error on its first tick.
+        st.session_state.pipeline_state = "processing"
+        if st.session_state.drive_connected:
+            try:
+                _s = db.read_status(_qp_jid)
+                if _s:
+                    _stage = _s.get("stage", "")
+                    if _stage == "done":
+                        st.session_state.pipeline_state = "done"
+                        _load_results(_qp_jid)
+                    elif _stage == "error":
+                        st.session_state.pipeline_state = "error"
+                    # else: leave as "processing" — fragment will poll
+            except Exception:
+                pass  # leave as "processing" — fragment will retry
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -394,7 +397,7 @@ def _page_upload() -> None:
     fname = st.session_state.uploaded_filename
 
     # ── Active job: hide uploader, show card ──
-    if jid and _ps != "idle":
+    if jid:
         _render_job_card(jid, fname or "—", _ps)
         if _ps == "processing":
             st.caption(f"Uploaded. Colab is transcribing — auto-updates every {config.LOCAL_POLL_INTERVAL_SEC} s.")
