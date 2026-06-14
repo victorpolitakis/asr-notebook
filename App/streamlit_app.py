@@ -682,7 +682,11 @@ def _acc_render_single(r: dict) -> None:
 # Route
 # ══════════════════════════════════════════════════════════════════════════
 
-@st.fragment(run_every=config.LOCAL_POLL_INTERVAL_SEC)
+_poll_interval: int | None = (
+    config.LOCAL_POLL_INTERVAL_SEC if st.session_state.pipeline_state == "processing" else None
+)
+
+@st.fragment(run_every=_poll_interval)
 def _auto_poll() -> None:
     if st.session_state.pipeline_state == "processing" and st.session_state.active_job_id:
         _poll_job(st.session_state.active_job_id)

@@ -141,7 +141,7 @@ def _handle_asr_job(file_info: dict) -> None:
 
         # Clean up temp
         os.unlink(tmp_path)
-        logger.info("✅ ASR job %s — %s", job_id, state)
+        logger.info("%s ASR job %s — %s", "✅" if success else "❌", job_id, state)
 
     except Exception as e:
         logger.error("❌ ASR job %s failed: %s", job_id, e, exc_info=True)
@@ -276,7 +276,7 @@ def _handle_asr_job_fs(wav_path: str, filename: str) -> None:
         processed_dir = os.path.dirname(wav_path) + "/processed"
         os.makedirs(processed_dir, exist_ok=True)
         os.rename(wav_path, os.path.join(processed_dir, filename))
-        logger.info("✅ ASR job %s — %s", job_id, state)
+        logger.info("%s ASR job %s — %s", "✅" if success else "❌", job_id, state)
 
     except Exception as e:
         logger.error("❌ ASR job %s failed: %s", job_id, e, exc_info=True)
