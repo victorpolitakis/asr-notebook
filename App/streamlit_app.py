@@ -850,7 +850,8 @@ def _results_summaries(s: dict) -> None:
 
     cols = st.columns(3)
     for col, (title, key) in zip(cols, [("TL;DR", "tldr"), ("Executive", "executive"), ("Deep Dive", "deep_dive")]):
-        text = sums.get(key, "")
+        raw  = sums.get(key)
+        text = raw if isinstance(raw, str) and raw.strip() else ""
         with col:
             st.markdown(f"**{title}**")
             if text:
