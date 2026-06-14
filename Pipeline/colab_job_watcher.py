@@ -157,7 +157,7 @@ def _handle_asr_job(file_info: dict) -> None:
                     (results_dir / "transcript.txt").write_text(raw_text, encoding="utf-8")
                     
             except Exception as e:
-                logger.error("Error transcribing with model %s: %s", model_name, e)
+                logger.error("Error transcribing with model %s: %s", model_name, e, exc_info=True)
                 success = False
 
         db.write_status(
