@@ -2,8 +2,7 @@
 # ML deps (torch, transformers, faster-whisper, pyannote) run on Colab, not here.
 
 # ── Streamlit UI ─────────────────────────────────────────────────────────
-streamlit>=1.35.0
-streamlit-autorefresh>=1.0.0
+streamlit>=1.37.0
 pandas>=2.0.0
 plotly>=5.0.0
 

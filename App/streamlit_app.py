@@ -28,7 +28,6 @@ for _p in (_here.parent / "Pipeline", _here):
 import config
 import drive_bridge as db
 import comparison_metrics as cm
-from streamlit_autorefresh import st_autorefresh
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -37,9 +36,7 @@ from streamlit_autorefresh import st_autorefresh
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500&family=IBM+Plex+Mono:wght@400;500&display=swap');
-
-html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
+html, body, [class*="css"] { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
 
 /* Hide Streamlit chrome — NOT the header element (breaks sidebar toggle) */
 #MainMenu, footer { visibility: hidden; }
@@ -116,7 +113,7 @@ hr { border-color: #181828 !important; margin: 1.2rem 0 !important; }
 }
 .seg .lbl {
     display: block;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: ui-monospace, Menlo, 'Courier New', monospace;
     font-size: 9px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -132,7 +129,7 @@ hr { border-color: #181828 !important; margin: 1.2rem 0 !important; }
     margin: 2px 4px 2px 0;
     font-size: 11px;
     color: #888;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: ui-monospace, Menlo, 'Courier New', monospace;
 }
 .jcard {
     background: #12121e;
@@ -145,7 +142,7 @@ hr { border-color: #181828 !important; margin: 1.2rem 0 !important; }
     margin-top: 12px;
 }
 .diff-view {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: ui-monospace, Menlo, 'Courier New', monospace;
     font-size: 12px;
     line-height: 2;
     max-height: 420px;
@@ -184,6 +181,7 @@ for _k, _v in _DEFAULTS.items():
 def _reset_job() -> None:
     for _k in ("active_job_id", "pipeline_state", "uploaded_filename", "transcript", "summary"):
         st.session_state[_k] = _DEFAULTS[_k]
+    st.query_params.clear()
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -237,17 +235,25 @@ def _poll_job(job_id: str) -> None:
 
 _drive_connect_silent()
 
-_is_processing = st.session_state.pipeline_state == "processing"
-
-# Auto-refresh only while a job is running
-st_autorefresh(
-    interval=config.LOCAL_POLL_INTERVAL_SEC * 1000 if _is_processing else 999_999_999,
-    key="poll_timer",
-)
-
-# On each refresh cycle, poll Drive for job updates
-if _is_processing and st.session_state.active_job_id:
-    _poll_job(st.session_state.active_job_id)
+# Restore job from URL after hard refresh (state lost, URL survives)
+if not st.session_state.active_job_id:
+    _qp_jid = st.query_params.get("job_id")
+    if _qp_jid and st.session_state.drive_connected:
+        st.session_state.active_job_id     = _qp_jid
+        st.session_state.uploaded_filename = st.query_params.get("fname", "")
+        try:
+            _s = db.read_status(_qp_jid)
+            if _s:
+                _stage = _s.get("stage", "")
+                if _stage == "done":
+                    st.session_state.pipeline_state = "done"
+                    _load_results(_qp_jid)
+                elif _stage == "error":
+                    st.session_state.pipeline_state = "error"
+                else:
+                    st.session_state.pipeline_state = "processing"
+        except Exception:
+            pass
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -264,7 +270,7 @@ with st.sidebar:
     st.markdown(
         '<div style="padding:6px 0 22px">'
         '<div style="font-size:15px;font-weight:500;color:#dde0f0">🎙️ ECE22073</div>'
-        '<div style="font-size:10px;color:#3a3a52;font-family:IBM Plex Mono,monospace;margin-top:3px">'
+        '<div style="font-size:10px;color:#3a3a52;font-family:ui-monospace,Menlo,monospace;margin-top:3px">'
         'AI Audio Pipeline</div></div>',
         unsafe_allow_html=True,
     )
@@ -376,44 +382,47 @@ def _segments_from_transcript(t: dict) -> list[dict]:
 # ══════════════════════════════════════════════════════════════════════════
 
 def _page_upload() -> None:
-    st.markdown("## Sources")
-    st.caption("Upload an audio file to send to Colab for transcription and analysis.")
-
-    _ps = st.session_state.pipeline_state
+    st.markdown("## Upload")
 
     if not st.session_state.drive_connected:
         st.warning("Drive not connected — use the sidebar button to authenticate first.")
         return
 
-    # ── File uploader ──
-    uploaded = st.file_uploader(
-        "Choose an audio file",
-        type=["wav", "mp3", "m4a"],
-        disabled=(_ps == "processing"),
-    )
+    _ps   = st.session_state.pipeline_state
+    jid   = st.session_state.active_job_id
+    fname = st.session_state.uploaded_filename
 
-    if uploaded and _ps in ("idle", "done", "error"):
+    # ── Active job: hide uploader, show card ──
+    if jid and _ps != "idle":
+        _render_job_card(jid, fname or "—", _ps)
+        if _ps == "processing":
+            st.caption(f"Colab is processing. Auto-refreshes every {config.LOCAL_POLL_INTERVAL_SEC} s.")
+        elif _ps == "done":
+            _render_upload_done_summary()
+        elif _ps == "error":
+            st.error("Pipeline error — check the Colab runtime logs.")
+            if st.button("↑ New Upload", key="btn_new_upload_err"):
+                _reset_job()
+                st.rerun()
+        return
+
+    # ── Idle: show uploader ──
+    st.caption("Upload an audio file to send to Colab for transcription and analysis.")
+    uploaded = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"])
+    if uploaded:
         if st.button("Transcribe", type="primary"):
             _upload_and_submit(uploaded)
             st.rerun()
-
-    # ── Job card ──
-    jid   = st.session_state.active_job_id
-    fname = st.session_state.uploaded_filename
-    if jid and fname:
-        _render_job_card(jid, fname, _ps)
-
-    # ── Completion summary ──
-    if _ps == "done":
-        _render_upload_done_summary()
 
 
 def _upload_and_submit(f: Any) -> None:
     jid = db.generate_job_id()
     ext = Path(f.name).suffix or ".wav"
-    st.session_state.active_job_id    = jid
+    st.session_state.active_job_id     = jid
     st.session_state.uploaded_filename = f.name
-    st.session_state.pipeline_state   = "uploading"
+    st.session_state.pipeline_state    = "uploading"
+    st.query_params["job_id"] = jid
+    st.query_params["fname"]  = f.name
 
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(f.read())
@@ -439,19 +448,13 @@ def _render_job_card(jid: str, fname: str, ps: str) -> None:
         f'<span style="font-size:26px">🎙️</span>'
         f'<div style="flex:1">'
         f'<div style="color:#dde0f0;font-weight:500;font-size:14px">{fname}</div>'
-        f'<div style="color:#444;font-size:11px;font-family:IBM Plex Mono,monospace;margin-top:3px">job: {jid}</div>'
+        f'<div style="color:#444;font-size:11px;font-family:ui-monospace,Menlo,monospace;margin-top:3px">job: {jid}</div>'
         f'</div>'
-        f'<div style="color:{color};font-size:12px;font-family:IBM Plex Mono,monospace">{ps}</div>'
+        f'<div style="color:{color};font-size:12px;font-family:ui-monospace,Menlo,monospace">{ps}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
-    if ps == "processing":
-        if st.button("↻ Check Status", key="btn_check_status"):
-            with st.spinner("Polling Drive…"):
-                _poll_job(jid)
-            st.rerun()
-        st.caption("Colab is processing. Auto-refreshes every 15 s.")
 
 
 def _render_upload_done_summary() -> None:
@@ -474,8 +477,12 @@ def _render_upload_done_summary() -> None:
     if tldr:
         st.info(f"**TL;DR** — {tldr[:300]}{'…' if len(tldr) > 300 else ''}")
 
-    if st.button("View Full Results →", type="primary"):
+    c_r, c_n = st.columns(2)
+    if c_r.button("View Full Results →", type="primary"):
         st.session_state._page = "Results"
+        st.rerun()
+    if c_n.button("↑ New Upload"):
+        _reset_job()
         st.rerun()
 
 
@@ -674,6 +681,15 @@ def _acc_render_single(r: dict) -> None:
 # ══════════════════════════════════════════════════════════════════════════
 # Route
 # ══════════════════════════════════════════════════════════════════════════
+
+@st.fragment(run_every=config.LOCAL_POLL_INTERVAL_SEC)
+def _auto_poll() -> None:
+    if st.session_state.pipeline_state == "processing" and st.session_state.active_job_id:
+        _poll_job(st.session_state.active_job_id)
+        if st.session_state.pipeline_state != "processing":
+            st.rerun(scope="app")
+
+_auto_poll()
 
 _PAGES = {
     "Upload":   _page_upload,
