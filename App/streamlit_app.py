@@ -1068,53 +1068,61 @@ def _page_accuracy() -> None:
 
 # ── Single comparison ──────────────────────────────────────────────────────
 
+_DISPLAY_MAP = {
+    "whisper-turbo":    "Whisper Turbo",
+    "whisper-large-v3": "Whisper Large v3",
+    "canary":           "Nvidia Canary",
+    "parakeet":         "Nvidia Parakeet",
+    "qwen":             "Qwen ASR",
+    "nemotron":         "Nemotron",
+}
+
+
 def _acc_single() -> None:
-    # Hypothesis is always the pipeline transcript — never uploaded manually
-    model_trans = st.session_state.model_transcripts
-    selected_model_name = None
+    # Build hypotheses: main transcript (whisper-turbo) + any extra models
+    hypotheses: dict[str, str] = {}  # {display_name: text}
 
-    if model_trans:
-        display_map = {
-            "whisper-turbo": "Whisper Turbo",
-            "whisper-large-v3": "Whisper Large v3",
-            "canary": "Nvidia Canary",
-            "parakeet": "Nvidia Parakeet",
-            "qwen": "Qwen ASR",
-            "nemotron": "Nemotron"
-        }
-        avail_models = list(model_trans.keys())
-        selected_model_key = st.selectbox(
-            "Select model to compare",
-            avail_models,
-            format_func=lambda x: display_map.get(x, x.upper()),
-            key="acc_model_select"
-        )
-        t = model_trans[selected_model_key]
-        hyp = t.get("normalized_full_text") or t.get("full_text") or ""
-        selected_model_name = display_map.get(selected_model_key, selected_model_key.upper())
-    else:
-        t   = st.session_state.transcript or {}
-        hyp = t.get("normalized_full_text") or t.get("full_text") or ""
+    t_main = st.session_state.transcript or {}
+    main_text = t_main.get("normalized_full_text") or t_main.get("full_text") or ""
+    if main_text.strip():
+        hypotheses["Whisper Turbo"] = main_text
 
-    if not hyp.strip():
+    for model_key, trans in (st.session_state.model_transcripts or {}).items():
+        text = trans.get("normalized_full_text") or trans.get("full_text") or ""
+        if text.strip():
+            hypotheses[_DISPLAY_MAP.get(model_key, model_key.upper())] = text
+
+    if not hypotheses:
         st.info("No transcript loaded. Go to **Upload** or **History** to load a job first.")
         return
 
     up_ref = st.file_uploader("Ground Truth (.txt)", type=["txt"], key="acc_s_ref")
     ref = up_ref.read().decode("utf-8", errors="replace") if up_ref else ""
 
-    c1, c2 = st.columns(2)
-    c1.text_area("Pipeline output (preview)", hyp[:1500] + ("…" if len(hyp) > 1500 else ""),
-                 height=140, key="acc_s_hyp_prev", disabled=True)
-    c2.text_area("Ground truth (preview)",    ref[:1500] + ("…" if len(ref)  > 1500 else ""),
-                 height=140, key="acc_s_ref_prev", disabled=True)
+    if not ref.strip():
+        st.caption(f"Available transcripts: {', '.join(hypotheses.keys())}")
+        return
 
-    if st.button("Compare", type="primary", disabled=not ref.strip()):
+    if st.button("Compare all models", type="primary"):
         with st.spinner("Computing metrics…"):
-            st.session_state.acc_result = cm.compute_all_metrics(hyp, ref, label=selected_model_name or "ASR")
+            st.session_state.acc_result = {
+                name: cm.compute_all_metrics(hyp, ref, label=name)
+                for name, hyp in hypotheses.items()
+            }
 
-    if r := st.session_state.acc_result:
-        _acc_render_single(r)
+    results: dict[str, Any] = st.session_state.acc_result or {}
+    if not results:
+        return
+
+    tab_names = list(results.keys()) + ["Summary"]
+    tabs = st.tabs(tab_names)
+
+    for i, (name, r) in enumerate(results.items()):
+        with tabs[i]:
+            _acc_render_single(r)
+
+    with tabs[-1]:
+        _acc_render_summary(results)
 
 
 def _acc_render_single(r: dict) -> None:
@@ -1161,9 +1169,30 @@ def _acc_render_single(r: dict) -> None:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dc1, dc2 = st.columns(2)
     dc1.download_button("JSON Report", cm.generate_report_json(r), f"report_{ts}.json",
-                        "application/json", key="dl_s_json")
+                        "application/json", key=f"dl_s_json_{r.get('label','')}")
     dc2.download_button("TXT Report",  cm.generate_report_txt(r),  f"report_{ts}.txt",
-                        "text/plain",       key="dl_s_txt")
+                        "text/plain",       key=f"dl_s_txt_{r.get('label','')}")
+
+
+def _acc_render_summary(results: dict[str, Any]) -> None:
+    def _pct(v: Any) -> str:
+        return f"{v * 100:.1f}%" if v is not None else "—"
+
+    rows = []
+    for name, r in results.items():
+        w     = r.get("wer",   {})
+        rouge = r.get("rouge", {})
+        b     = r.get("bleu",  {})
+        rows.append({
+            "Model":     name,
+            "WER":       _pct(w.get("wer"))            if "error" not in w else "—",
+            "Norm WER":  _pct(w.get("normalized_wer")) if "error" not in w else "—",
+            "ROUGE-L":   _pct((rouge.get("rougeL") or {}).get("f1")),
+            "BLEU":      _pct(b.get("bleu"))           if "error" not in b else "—",
+        })
+
+    st.markdown("**Model Comparison**")
+    st.dataframe(pd.DataFrame(rows).set_index("Model"), use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════

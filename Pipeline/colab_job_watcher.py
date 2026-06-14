@@ -62,6 +62,32 @@ def _make_status(
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Extra-model runner (isolated thread per model)
+# ═══════════════════════════════════════════════════════════════════
+
+def _run_extra_model(model_name: str, audio_path: str) -> str:
+    """Run one model from models_registry in a fresh thread+event-loop.
+    Returns the raw transcript text, or raises on failure.
+    """
+    import threading
+    import asyncio as _asyncio
+    result_holder: dict[str, Any] = {}
+
+    def _run() -> None:
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
+        import models_registry
+        result_holder["text"] = models_registry.transcribe_with_model(model_name, audio_path)
+
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join()
+    if "text" not in result_holder:
+        raise RuntimeError(f"Thread for {model_name} produced no output")
+    return result_holder["text"]
+
+
+# ═══════════════════════════════════════════════════════════════════
 # ASR job handler
 # ═══════════════════════════════════════════════════════════════════
 
@@ -127,6 +153,40 @@ def _handle_asr_job(file_info: dict) -> None:
         for extra in (ndt, ntf):
             if extra.exists():
                 db.upload_file(str(extra), job_output)
+
+        # ── Extra comparison models (from meta.json selected_models) ──────────
+        # whisper-turbo is already run by run_pipeline above — skip it.
+        extra_models: list[str] = []
+        try:
+            job_files = db.list_files(job_output)
+            meta_id = next((jf["id"] for jf in job_files if jf["name"] == "meta.json"), None)
+            if meta_id:
+                meta = db.read_json(meta_id)
+                extra_models = [m for m in meta.get("selected_models", []) if m != "whisper-turbo"]
+        except Exception as _me:
+            logger.warning("Could not read selected_models from meta.json: %s", _me)
+
+        for model_name in extra_models:
+            logger.info("Running extra model: %s", model_name)
+            db.write_status(
+                job_id,
+                _make_status(job_id, "asr", f"asr_{model_name}", progress_pct=0.85, eta_seconds=180),
+            )
+            try:
+                raw_text = _run_extra_model(model_name, tmp_path)
+                model_transcript = {
+                    "source_file": filename,
+                    "full_text": raw_text,
+                    "model_name": model_name,
+                    "chunks": [{"segments": [{"speaker": "Speaker A", "text": raw_text, "start": 0.0}]}],
+                }
+                t_json = results_dir / f"transcript_{model_name}.json"
+                with open(t_json, "w", encoding="utf-8") as _f:
+                    json.dump(model_transcript, _f, indent=2, ensure_ascii=False)
+                db.upload_file(str(t_json), job_output)
+                logger.info("✓ Extra model %s — done", model_name)
+            except Exception as _me:
+                logger.error("✗ Extra model %s failed: %s", model_name, _me, exc_info=True)
 
         state = "done" if success else "error"
         db.write_status(
