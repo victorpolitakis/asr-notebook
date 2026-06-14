@@ -11,6 +11,9 @@ google-auth>=2.0.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.0.0
 
+# ── Chat (Results page) ───────────────────────────────────────────────────
+openai>=1.0.0
+
 # ── Accuracy metrics (Accuracy Check page) ───────────────────────────────
 rouge-score>=0.1.2
 jiwer>=3.0.0

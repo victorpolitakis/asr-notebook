@@ -379,6 +379,27 @@ hr {
 [data-testid="stFileUploader"] [data-testid="stBaseButton-minimal"],
 [data-testid="stFileUploader"] button[aria-label="Add file"],
 [data-testid="stFileUploader"] button[aria-label="add file"] { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   CHAT
+═══════════════════════════════════════════════════════════ */
+[data-testid="stChatMessage"] {
+  background: var(--bg2) !important;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  margin-bottom: 6px;
+}
+[data-testid="stChatMessage"] p { color: var(--text) !important; font-family: var(--fn-body) !important; font-size: 13px; }
+[data-testid="stChatMessage"][data-testid*="user"] { border-left: 2px solid var(--amber-dim); }
+[data-testid="stChatMessage"][data-testid*="assistant"] { border-left: 2px solid #2a5a3a; }
+[data-testid="stChatInput"] { background: var(--bg2) !important; border-top: 1px solid var(--border) !important; }
+[data-testid="stChatInput"] textarea {
+  background: var(--bg) !important;
+  border: 1px solid var(--border-hi) !important;
+  color: var(--text) !important;
+  font-family: var(--fn-body) !important;
+  font-size: 13px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -399,6 +420,7 @@ _DEFAULTS: dict[str, Any] = {
     "drive_connected":   False,
     "_page":             "Upload",
     "poll_miss_count":   0,
+    "chat_history":      [],
 }
 
 for _k, _v in _DEFAULTS.items():
@@ -777,6 +799,78 @@ def _render_upload_done_summary() -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Chat helper
+# ══════════════════════════════════════════════════════════════════════════
+
+def _results_chat(s: dict) -> None:
+    context_parts: list[str] = []
+
+    deep_dive = _flatten_summary((s.get("summaries") or {}).get("deep_dive"))
+    if deep_dive:
+        context_parts.append(f"SUMMARY:\n{deep_dive}")
+
+    ents = s.get("entities") or {}
+    ent_lines: list[str] = []
+    for k, label in [("persons", "People"), ("organizations", "Organizations"), ("keywords", "Keywords")]:
+        items = ents.get(k, [])
+        if items:
+            names = [i if isinstance(i, str) else i.get("name", "") for i in items[:20]]
+            ent_lines.append(f"{label}: {', '.join(filter(None, names))}")
+    if ent_lines:
+        context_parts.append("ENTITIES:\n" + "\n".join(ent_lines))
+
+    if not context_parts:
+        st.caption("No summary or entity data available — run a transcription job first.")
+        return
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        st.warning("Set OPENAI_API_KEY in your environment to enable chat.")
+        return
+
+    system_prompt = (
+        "You are a concise assistant answering questions about an audio recording. "
+        "Use only the context below — do not invent information not present in it.\n\n"
+        + "\n\n".join(context_parts)
+    )
+
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    if st.session_state.chat_history:
+        if st.button("Clear", key="chat_clear"):
+            st.session_state.chat_history = []
+            st.rerun()
+
+    user_input = st.chat_input("Ask about the transcript…")
+    if user_input:
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        with st.chat_message("assistant"):
+            with st.spinner(""):
+                try:
+                    from openai import OpenAI as _OAI
+                    client = _OAI(api_key=api_key, base_url=config.LLM_BASE_URL)
+                    resp = client.chat.completions.create(
+                        model=os.environ.get("LLM_MODEL", config.LLM_MODEL),
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            *st.session_state.chat_history,
+                        ],
+                        max_tokens=800,
+                    )
+                    answer = resp.choices[0].message.content or ""
+                except Exception as exc:
+                    answer = f"Error: {exc}"
+
+            st.markdown(answer)
+            st.session_state.chat_history.append({"role": "assistant", "content": answer})
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Page: Results
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -792,7 +886,7 @@ def _page_results() -> None:
         return
 
     st.markdown("## Results")
-    tab_tr, tab_ent, tab_sum = st.tabs(["Transcript", "Entities", "Summaries"])
+    tab_tr, tab_ent, tab_sum, tab_chat = st.tabs(["Transcript", "Entities", "Summaries", "Chat"])
 
     with tab_tr:
         _results_transcript(t)
@@ -800,6 +894,8 @@ def _page_results() -> None:
         _results_entities(s)
     with tab_sum:
         _results_summaries(s)
+    with tab_chat:
+        _results_chat(s)
 
 
 def _results_transcript(t: dict) -> None:
