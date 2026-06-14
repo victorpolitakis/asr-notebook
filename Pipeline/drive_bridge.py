@@ -364,3 +364,39 @@ def archive_input_file(file_id: str) -> None:
 def generate_job_id() -> str:
     """Generate a unique job ID."""
     return str(uuid.uuid4())[:8]
+
+
+def list_job_history() -> list[dict]:
+    """Return all ASR job records from the output folder, newest first.
+    Each entry: {job_id, stage, updated_at, error, drive_created}.
+    Skips system folders (e.g. 'podcasts') by requiring 8-char hex names.
+    """
+    import re
+    _JOB_RE = re.compile(r"^[0-9a-f]{8}$")
+
+    try:
+        items = list_files(config.DRIVE_OUTPUT)
+    except Exception as exc:
+        logger.warning("list_job_history: %s", exc)
+        return []
+
+    results = []
+    for item in items:
+        name = item.get("name", "")
+        if not _JOB_RE.match(name):
+            continue
+        try:
+            status = read_status(name)
+            if status:
+                results.append({
+                    "job_id":        name,
+                    "stage":         status.get("stage", "unknown"),
+                    "updated_at":    status.get("updated_at", ""),
+                    "error":         status.get("error"),
+                    "drive_created": item.get("createdTime", ""),
+                })
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    return results

@@ -169,6 +169,7 @@ _DEFAULTS: dict[str, Any] = {
     "transcript":        None,
     "summary":           None,
     "acc_result":        None,
+    "history_items":     None,
     "drive_connected":   False,
     "_page":             "Upload",
 }
@@ -278,7 +279,7 @@ with st.sidebar:
     # ── Navigation ──
     # type="primary" on the active page gives a clear visual active state without JS
     _cur_page = st.session_state._page
-    _nav_items = [("Upload", "Upload"), ("Results", "Results"), ("Accuracy", "Accuracy Check")]
+    _nav_items = [("Upload", "Upload"), ("Results", "Results"), ("Accuracy", "Accuracy Check"), ("History", "History")]
     for _key, _label in _nav_items:
         if st.button(
             _label, key=f"nav_{_key}",
@@ -682,6 +683,83 @@ def _acc_render_single(r: dict) -> None:
 # Route
 # ══════════════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════════════
+# Page: History
+# ══════════════════════════════════════════════════════════════════════════
+
+def _page_history() -> None:
+    st.markdown("## History")
+    st.caption("Past jobs from Google Drive. Click **Load** to restore results.")
+
+    if not st.session_state.drive_connected:
+        st.warning("Drive not connected — authenticate first from the sidebar.")
+        return
+
+    # Auto-load on first visit
+    if st.session_state.history_items is None:
+        with st.spinner("Loading job history from Drive…"):
+            try:
+                st.session_state.history_items = db.list_job_history()
+            except Exception as exc:
+                st.error(f"Could not load history: {exc}")
+                st.session_state.history_items = []
+
+    _, col_refresh = st.columns([5, 1])
+    if col_refresh.button("↻ Refresh", key="hist_refresh"):
+        with st.spinner("Refreshing…"):
+            try:
+                st.session_state.history_items = db.list_job_history()
+            except Exception as exc:
+                st.error(f"Could not refresh: {exc}")
+
+    items = st.session_state.history_items or []
+    if not items:
+        st.info("No jobs found in the Drive output folder.")
+        return
+
+    for item in items:
+        jid   = item["job_id"]
+        stage = item["stage"]
+        ts_raw = item.get("updated_at", "")
+        try:
+            dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+            ts = dt.strftime("%d %b %Y · %H:%M UTC")
+        except Exception:
+            ts = ts_raw[:19] if ts_raw else "—"
+
+        color = {"done": "#3dde8f", "error": "#ff5a5a"}.get(stage, "#ddb83d")
+        icon  = {"done": "✅", "error": "❌"}.get(stage, "⏳")
+
+        st.markdown(
+            f'<div class="jcard" style="margin-top:8px">'
+            f'<span style="font-size:22px">{icon}</span>'
+            f'<div style="flex:1">'
+            f'<div style="color:#dde0f0;font-family:ui-monospace,monospace;font-size:13px;font-weight:500">job: {jid}</div>'
+            f'<div style="color:#444;font-size:11px;font-family:ui-monospace,monospace;margin-top:3px">{ts}</div>'
+            f'</div>'
+            f'<div style="color:{color};font-size:11px;font-family:ui-monospace,monospace">{stage}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        if stage == "done":
+            if st.button("Load Results →", key=f"hist_load_{jid}", type="primary"):
+                with st.spinner("Loading results from Drive…"):
+                    st.session_state.active_job_id    = jid
+                    st.session_state.uploaded_filename = ""
+                    st.session_state.pipeline_state   = "done"
+                    st.session_state.acc_result       = None
+                    _load_results(jid)
+                    st.query_params["job_id"] = jid
+                st.session_state._page = "Results"
+                st.rerun()
+        elif item.get("error"):
+            st.caption(f"↳ {item['error'][:120]}")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Auto-poll fragment + routing
+# ══════════════════════════════════════════════════════════════════════════
+
 _poll_interval: int | None = (
     config.LOCAL_POLL_INTERVAL_SEC if st.session_state.pipeline_state == "processing" else None
 )
@@ -699,6 +777,7 @@ _PAGES = {
     "Upload":   _page_upload,
     "Results":  _page_results,
     "Accuracy": _page_accuracy,
+    "History":  _page_history,
 }
 
 _PAGES.get(st.session_state._page, _page_upload)()
