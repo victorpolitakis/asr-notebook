@@ -172,8 +172,6 @@ _DEFAULTS: dict[str, Any] = {
     "transcript":        None,
     "summary":           None,
     "acc_result":        None,
-    "acc_bulk_entries":  None,     # list, initialised lazily
-    "acc_bulk_results":  None,
     "drive_connected":   False,
     "_page":             "Upload",
 }
@@ -593,14 +591,8 @@ def _results_summaries(s: dict) -> None:
 def _page_accuracy() -> None:
     st.markdown("## Accuracy Check")
     st.caption("Compare pipeline output against a reference ground-truth transcript.")
-
-    mode = st.radio("Mode", ["Single Comparison", "Bulk Comparison"], horizontal=True, key="acc_mode")
     st.divider()
-
-    if mode == "Single Comparison":
-        _acc_single()
-    else:
-        _acc_bulk()
+    _acc_single()
 
 
 # ── Single comparison ──────────────────────────────────────────────────────
@@ -677,95 +669,6 @@ def _acc_render_single(r: dict) -> None:
                         "application/json", key="dl_s_json")
     dc2.download_button("TXT Report",  cm.generate_report_txt(r),  f"report_{ts}.txt",
                         "text/plain",       key="dl_s_txt")
-
-
-# ── Bulk comparison ────────────────────────────────────────────────────────
-
-def _acc_bulk() -> None:
-    up_ref = st.file_uploader("Reference / Ground Truth (.txt)", type=["txt"], key="acc_b_ref")
-    ref = up_ref.read().decode("utf-8", errors="replace") if up_ref else ""
-
-    st.divider()
-    st.caption("Add one or more hypothesis files to compare against the same reference.")
-
-    # Initialise entry list lazily
-    if st.session_state.acc_bulk_entries is None:
-        st.session_state.acc_bulk_entries = [
-            {"_id": "e0", "label": "Model 1", "hypothesis": "", "filename": ""}
-        ]
-    entries: list[dict] = st.session_state.acc_bulk_entries
-
-    for e in list(entries):
-        # Stable ID per entry — never reuse indices as keys (index-shift bug)
-        eid = e.setdefault("_id", f"e_{id(e)}")
-        c1, c2, c3 = st.columns([2, 5, 1])
-        e["label"] = c1.text_input(
-            "Label", value=e["label"], key=f"lbl_{eid}",
-            placeholder="e.g. faster-whisper-turbo",
-        )
-        up = c2.file_uploader("Hypothesis", type=["txt"], key=f"hyp_{eid}",
-                              label_visibility="collapsed")
-        if up:
-            e["hypothesis"] = up.read().decode("utf-8", errors="replace")
-            e["filename"]   = up.name
-        elif e.get("filename"):
-            c2.caption(f"Loaded: {e['filename']}")
-        c3.markdown("<br>", unsafe_allow_html=True)
-        if c3.button("✕", key=f"rm_{eid}"):
-            entries[:] = [x for x in entries if x.get("_id") != eid]
-            st.rerun()
-
-    if st.button("+ Add Model"):
-        n = len(entries)
-        entries.append({"_id": f"e{n}_{id(entries)}", "label": f"Model {n + 1}",
-                        "hypothesis": "", "filename": ""})
-        st.rerun()
-
-    st.divider()
-    valid = [e for e in entries if e.get("hypothesis", "").strip()]
-    can_run = ref.strip() and valid
-
-    if st.button("Compare All", type="primary", disabled=not can_run):
-        with st.spinner(f"Running {len(valid)} comparison(s)…"):
-            st.session_state.acc_bulk_results = cm.compare_models(ref, valid)
-
-    if bulk := st.session_state.acc_bulk_results:
-        _acc_render_bulk(bulk)
-
-
-def _acc_render_bulk(results: list[dict]) -> None:
-    st.divider()
-    df = cm.bulk_results_to_dataframe(results)
-    num_cols = [
-        c for c in df.columns
-        if c not in ("Model", "Error") and pd.api.types.is_numeric_dtype(df[c])
-    ]
-
-    def _highlight(s: pd.Series) -> list[str]:
-        if s.name not in num_cols:
-            return [""] * len(s)
-        best = s.idxmin() if any(x in str(s.name) for x in ("WER", "CER")) else s.idxmax()
-        return [
-            "color:#4aff9e;font-weight:500" if i == best and pd.notna(s.iloc[i]) else ""
-            for i in range(len(s))
-        ]
-
-    styled = (
-        df.style
-        .apply(_highlight, subset=num_cols)
-        .format({c: "{:.4f}" for c in num_cols if pd.api.types.is_float_dtype(df[c])}, na_rep="—")
-    )
-    st.dataframe(styled, use_container_width=True, hide_index=True)
-
-    ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
-    combined = json.dumps(
-        {"results": results, "evaluated_at": datetime.now(timezone.utc).isoformat()},
-        indent=2, ensure_ascii=False,
-    )
-    txt_parts = "\n\n".join(cm.generate_report_txt(r) for r in results)
-    dc1, dc2 = st.columns(2)
-    dc1.download_button("JSON Report", combined,   f"bulk_{ts}.json", "application/json", key="dl_b_json")
-    dc2.download_button("TXT Report",  txt_parts,  f"bulk_{ts}.txt",  "text/plain",       key="dl_b_txt")
 
 
 # ══════════════════════════════════════════════════════════════════════════
