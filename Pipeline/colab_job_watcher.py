@@ -210,7 +210,10 @@ def _handle_asr_job(file_info: dict) -> None:
             _make_status(job_id, "asr", "error", progress_pct=0.0, eta_seconds=0,
                          error=str(e)[:500]),
         )
-        # Don't archive — leave input for retry on restart
+        try:
+            db.archive_input_file(file_id)
+        except Exception as ae:
+            logger.error("Failed to archive failed ASR input file %s: %s", file_id, ae)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -287,6 +290,10 @@ def _handle_podcast_job(file_info: dict) -> None:
             _make_status(job_id, "podcast", "error", progress_pct=0.0, eta_seconds=0,
                          error=str(e)[:500]),
         )
+        try:
+            db.archive_input_file(file_id)
+        except Exception as ae:
+            logger.error("Failed to archive failed Podcast input file %s: %s", file_id, ae)
 
 
 # ═══════════════════════════════════════════════════════════════════
