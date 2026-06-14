@@ -209,6 +209,7 @@ def upload_file(
     service = authenticate()
     local_path = Path(local_path)
     target_name = filename or local_path.name
+    folder_id = _resolve_folder_id(drive_folder)
     target_name_escaped = target_name.replace("'", "\\'")
     query = f"'{folder_id}' in parents and name='{target_name_escaped}' and trashed=false"
     existing = service.files().list(q=query, fields="files(id)", pageSize=1).execute().get("files", [])
