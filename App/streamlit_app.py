@@ -927,21 +927,17 @@ def _page_results() -> None:
     tab_tr, tab_ent, tab_sum, tab_chat = st.tabs(["Transcript", "Entities", "Summaries", "Chat"])
 
     with tab_tr:
-        model_trans = st.session_state.model_transcripts
-        if model_trans:
-            display_map = {
-                "whisper-turbo": "Whisper Turbo",
-                "whisper-large-v3": "Whisper Large v3",
-                "canary": "Nvidia Canary",
-                "parakeet": "Nvidia Parakeet",
-                "qwen": "Qwen ASR",
-                "nemotron": "Nemotron"
-            }
-            avail_models = list(model_trans.keys())
-            model_tabs = st.tabs([display_map.get(m, m.upper()) for m in avail_models])
-            for m_idx, m_tab in enumerate(model_tabs):
+        model_trans = st.session_state.model_transcripts or {}
+        # Always include the main transcript (whisper-turbo from run_pipeline)
+        all_transcripts: dict[str, dict] = {"Whisper Turbo": t} if t else {}
+        for mk, mv in model_trans.items():
+            all_transcripts[_DISPLAY_MAP.get(mk, mk.upper())] = mv
+
+        if len(all_transcripts) > 1:
+            model_tabs = st.tabs(list(all_transcripts.keys()))
+            for m_tab, trans in zip(model_tabs, all_transcripts.values()):
                 with m_tab:
-                    _results_transcript(model_trans[avail_models[m_idx]])
+                    _results_transcript(trans)
         else:
             _results_transcript(t)
     with tab_ent:
@@ -1110,7 +1106,11 @@ def _acc_single() -> None:
                 for name, hyp in hypotheses.items()
             }
 
-    results: dict[str, Any] = st.session_state.acc_result or {}
+    raw = st.session_state.acc_result
+    # Guard against stale single-result dict from old session format
+    results: dict[str, Any] = raw if isinstance(raw, dict) and all(
+        isinstance(v, dict) and "wer" in v for v in raw.values()
+    ) else {}
     if not results:
         return
 
