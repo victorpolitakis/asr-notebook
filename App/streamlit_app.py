@@ -35,14 +35,9 @@ import comparison_metrics as cm
 # ══════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Share+Tech+Mono&display=swap');
 
-/* ═══════════════════════════════════════════════════════════
-   TOKENS — Magnetic Tape Console
-═══════════════════════════════════════════════════════════ */
 :root {
   --bg:          #070604;
   --bg2:         #110e09;
