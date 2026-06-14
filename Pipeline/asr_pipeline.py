@@ -97,6 +97,9 @@ def _get_diarization() -> Any:
                         ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding'],
                     )
             _ta.AudioMetaData = _AM
+        # torchaudio >= 2.4 also dropped list_audio_backends; pyannote calls it on import.
+        if not hasattr(_ta, 'list_audio_backends'):
+            _ta.list_audio_backends = lambda: ['soundfile']
         warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
         from pyannote.audio import Pipeline as PypPipe
         hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
