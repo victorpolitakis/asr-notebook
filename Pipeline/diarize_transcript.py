@@ -48,23 +48,31 @@ def diarize_transcript(
     chunks = transcript.get("chunks", [])
 
     for chunk in chunks:
-        speaker = chunk.get("speaker", "Speaker A")
-        # Normalize to "Speaker X" format — handle whatever the ASR returns
-        if isinstance(speaker, str) and speaker.startswith("SPEAKER_"):
-            speaker = "Speaker " + speaker.replace("SPEAKER_", "")
-        elif isinstance(speaker, str) and not speaker.startswith("Speaker"):
-            speaker = f"Speaker {speaker}"
-
-        text = chunk.get("text", "")
-        if not text.strip():
-            continue
-
-        # Use normalized text if available, otherwise raw
-        # The "text" field should already be the normalized version
-        # after transcript_normalizer has run (it replaces full_text in place)
-        clean = text.strip()
-        if clean:
-            lines.append(f"{speaker}: {clean}")
+        chunk_segs = chunk.get("segments", [])
+        if chunk_segs:
+            # Per-segment diarization (preferred — preserves speaker changes mid-chunk)
+            for seg in chunk_segs:
+                text = seg.get("text", "").strip()
+                if not text:
+                    continue
+                speaker = seg.get("speaker", "Speaker A")
+                if isinstance(speaker, str) and speaker.startswith("SPEAKER_"):
+                    speaker = "Speaker " + speaker.replace("SPEAKER_", "")
+                elif isinstance(speaker, str) and not speaker.startswith("Speaker"):
+                    speaker = f"Speaker {speaker}"
+                lines.append(f"{speaker}: {text}")
+        else:
+            # Fallback: chunk-level full_text with first detected speaker
+            text = chunk.get("full_text", "").strip()
+            if not text:
+                continue
+            speakers = chunk.get("speakers_detected", [])
+            speaker = speakers[0] if speakers else "Speaker A"
+            if isinstance(speaker, str) and speaker.startswith("SPEAKER_"):
+                speaker = "Speaker " + speaker.replace("SPEAKER_", "")
+            elif isinstance(speaker, str) and not speaker.startswith("Speaker"):
+                speaker = f"Speaker {speaker}"
+            lines.append(f"{speaker}: {text}")
 
     output_text = "\n".join(lines)
 

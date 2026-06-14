@@ -648,12 +648,24 @@ def _fv(v: Any) -> str:
 def _segments_from_transcript(t: dict) -> list[dict]:
     segs = []
     for chunk in t.get("chunks", []):
-        for seg in chunk.get("segments", []):
-            if seg.get("text", "").strip():
+        chunk_segs = chunk.get("segments", [])
+        if chunk_segs:
+            for seg in chunk_segs:
+                if seg.get("text", "").strip():
+                    segs.append({
+                        "speaker": seg.get("speaker", "Speaker A"),
+                        "text": seg["text"].strip(),
+                        "start": seg.get("start", chunk.get("start_time_sec", 0)),
+                    })
+        else:
+            # Fallback for older transcripts without per-segment data
+            text = chunk.get("full_text", "").strip()
+            if text:
+                speakers = chunk.get("speakers_detected", [])
                 segs.append({
-                    "speaker": seg.get("speaker", "Speaker A"),
-                    "text": seg["text"].strip(),
-                    "start": seg.get("start", chunk.get("start_time_sec", 0)),
+                    "speaker": speakers[0] if speakers else "Speaker A",
+                    "text": text,
+                    "start": chunk.get("start_time_sec", 0),
                 })
     return segs
 

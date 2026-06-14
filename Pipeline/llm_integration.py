@@ -330,6 +330,7 @@ class AccumulatedTranscript:
             "all_language_probs": chunk.get("all_language_probs", []),
             "full_text": chunk.get("full_text", ""),
             "speakers_detected": chunk.get("speakers_detected", []),
+            "segments": chunk.get("segments", []),
             "is_speech": chunk.get("is_speech", False),
         }
         self._chunks.append(slim)
@@ -447,7 +448,8 @@ class AccumulatedTranscript:
              "detected_language": c.get("detected_language"),
              "language_probability": c.get("language_probability"),
              "full_text": c.get("full_text", ""),
-             "speakers_detected": c.get("speakers_detected", [])}
+             "speakers_detected": c.get("speakers_detected", []),
+             "segments": c.get("segments", [])}
             for c in self._chunks
         ]
 
