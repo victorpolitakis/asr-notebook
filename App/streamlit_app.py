@@ -631,9 +631,21 @@ with st.sidebar:
         try:
             _status_live = db.read_status(st.session_state.active_job_id)
             if _status_live:
-                _pct  = _status_live.get("progress_pct", 0)
-                _stg  = _status_live.get("stage", "").replace("_", " ")
-                st.progress(_pct, text=f"{_stg} · {int(_pct * 100)}%")
+                _pct = _status_live.get("progress_pct", 0)
+                _stg = _status_live.get("stage", "").replace("_", " ").upper()
+                _pct_int = int(_pct * 100)
+                st.markdown(
+                    f'<div style="margin-top:8px">'
+                    f'<div style="display:flex;justify-content:space-between;'
+                    f'font-family:var(--fn-mono);font-size:9px;color:#7a6d54;'
+                    f'letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px">'
+                    f'<span>{_stg}</span><span>{_pct_int}%</span></div>'
+                    f'<div style="height:3px;background:#1c1609;border-radius:2px">'
+                    f'<div style="height:3px;width:{_pct_int}%;background:#e8a520;'
+                    f'border-radius:2px;transition:width .4s ease"></div>'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
         except Exception:
             pass
 
