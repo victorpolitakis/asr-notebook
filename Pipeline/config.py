@@ -33,6 +33,13 @@ LOCAL_POLL_INTERVAL_SEC: int = 15  # Streamlit refresh
 STALL_TIMEOUT_SEC: int = 600      # 10 min — no status update → stalled
 
 # ═══════════════════════════════════════════════════════════════════
+# LLM (Chat tab in Results)
+# ═══════════════════════════════════════════════════════════════════
+
+LLM_BASE_URL: str | None = None   # None → OpenAI default; set to override (e.g. local LM Studio)
+LLM_MODEL: str = "gpt-4o-mini"
+
+# ═══════════════════════════════════════════════════════════════════
 # Job state machine
 # ═══════════════════════════════════════════════════════════════════
 
