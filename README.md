@@ -11,42 +11,9 @@ Real-time pipeline for long-form audio: VAD chunking → multi-model ASR → spe
 
 ## How it works
 
-The system separates the lightweight UI (Streamlit) from heavy GPU compute (Google Colab) using Google Drive as a job queue. The user drops an audio file in the browser; a Colab runtime picks it up, runs the full pipeline, and writes results back to Drive. Streamlit polls for updates automatically.
+![Full system pipeline](assets/pipeline.png)
 
-```
-User browser
-    │  drag-drop audio
-    ▼
-Streamlit App  ──── Google Drive API v3 ────►  ece22073/input/{job_id}/
-                                                     │  job.json + audio
-                                                     ▼
-                                          colab_job_watcher.py  (polls every 10 s)
-                                                     │
-                              ┌──────────────────────┼──────────────────────┐
-                              ▼                      ▼                      ▼
-                       audio_processor.py     models_registry.py     llm_integration.py
-                       Silero VAD chunking    up to 6 ASR models     Ticker Window (120 s)
-                       −20 dBFS · 16 kHz      in parallel            4 concurrent LLM calls
-                              │
-                              ▼
-                    diarize_transcript.py        summary_generator.py
-                    pyannote 3.1                 chapters · TL;DR
-                    Speaker A / B / C            Executive · Deep Dive
-                              │
-                              ▼
-                    podcast_pipeline.py (optional)
-                    GPT script → Kokoro / Dia / Bark / XTTS-v2 / F5-TTS → MP3
-                              │
-                              ▼
-                    ece22073/output/{job_id}/
-                    status.json · transcript.json · summary_outputs.json
-                    {model}_transcript.json · {podcast_id}.mp3
-                              │
-                    Streamlit polls Drive every 15 s
-                              │
-                              ▼
-                    Results Page — Transcript · Entities · Chapters · Summaries · Chat Q&A
-```
+The system is organised into four layers separated by dashed swim-lane borders. The **Streamlit web app** submits audio and job config via `drive_bridge.py` and auto-polls Google Drive every 15 s. **Google Drive** acts as the job queue and persistent storage. The **Google Colab T4 GPU** runtime runs `colab_job_watcher.py`, which orchestrates audio pre-processing (Silero-VAD chunking at 16 kHz), up to six parallel ASR models, pyannote speaker diarization, and four concurrent LLM calls (topic extraction, entity recognition, three-level summarization, YouTube-style chapter detection). An optional Podcast Pipeline generates a two-speaker script and synthesises it with a selected TTS model. All LLM and gated-model calls route to **external APIs** (OpenAI, HuggingFace Hub).
 
 ---
 
