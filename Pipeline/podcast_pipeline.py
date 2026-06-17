@@ -360,29 +360,26 @@ class DiaModel(_BaseTTSModel):
         # Detect and fix incompatible dia version before importing.
         # The June-27-2025 refactor changed DiaConfig to require decoder_config/encoder_config
         # at top level, which doesn't match nari-labs/Dia-1.6B Hub config format.
+        # Use --no-deps to skip gradio (~13 min install); only dac is needed for inference.
         try:
             from dia.config import DiaConfig as _dc
             if "decoder_config" in getattr(_dc, "model_fields", {}):
                 import subprocess, sys as _sys
-                logger.info("Incompatible dia detected — reinstalling @%s...", self._DIA_COMMIT)
-                r = subprocess.run(
-                    [_sys.executable, "-m", "pip", "install", "-q", "--force-reinstall",
-                     f"git+https://github.com/nari-labs/dia.git@{self._DIA_COMMIT}"],
-                    capture_output=True, text=True, timeout=300,
-                )
-                if r.returncode != 0:
-                    logger.warning("dia reinstall stderr: %s", r.stderr[-300:])
-                else:
-                    logger.info("dia pinned to %s", self._DIA_COMMIT)
-                # dia's gradio dependency can downgrade anyio to 3.x, breaking openai.
-                # Restore anyio>=4.0.0 immediately after dia reinstall.
+                logger.info("Incompatible dia detected — reinstalling without gradio (~2 min)...")
                 subprocess.run(
-                    [_sys.executable, "-m", "pip", "install", "-q", "anyio>=4.0.0"],
-                    capture_output=True, text=True, timeout=60,
+                    [_sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--force-reinstall",
+                     f"git+https://github.com/nari-labs/dia.git@{self._DIA_COMMIT}"],
+                    capture_output=True, text=True, timeout=180,
+                )
+                subprocess.run(
+                    [_sys.executable, "-m", "pip", "install", "-q",
+                     "descript-audio-codec>=1.0.0", "soundfile>=0.13.1"],
+                    capture_output=True, text=True, timeout=120,
                 )
                 for _mod in list(_sys.modules.keys()):
-                    if _mod.startswith("dia") or _mod in ("anyio", "httpx"):
+                    if _mod.startswith("dia"):
                         del _sys.modules[_mod]
+                logger.info("dia pinned to %s (no gradio)", self._DIA_COMMIT)
         except ImportError:
             pass
 
@@ -390,7 +387,9 @@ class DiaModel(_BaseTTSModel):
             from dia.model import Dia
         except ImportError:
             raise RuntimeError(
-                f"Dia not installed. Run: pip install git+https://github.com/nari-labs/dia.git@{self._DIA_COMMIT}"
+                f"Dia not installed. Run: pip install --no-deps "
+                f"git+https://github.com/nari-labs/dia.git@{self._DIA_COMMIT} "
+                f"&& pip install descript-audio-codec>=1.0.0"
             )
 
         import torch
