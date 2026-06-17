@@ -16,7 +16,6 @@ Model loading strategy (T4 GPU, ~16GB VRAM):
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -31,7 +30,6 @@ import numpy as np
 
 import config
 import drive_bridge as db
-import llm_integration
 
 logger = logging.getLogger(__name__)
 
@@ -150,16 +148,23 @@ def _generate_script(job_config: dict) -> str:
 
     logger.info("Generating podcast script: ~%d words, tone=%s", duration_words, tone)
 
-    # asyncio.run() fails when called from within Colab's running kernel loop.
-    # Explicitly create and run a fresh loop to bypass the "is loop running?" check.
-    _loop = asyncio.new_event_loop()
-    try:
-        raw = _loop.run_until_complete(llm_integration._call_llm(
-            system_prompt=prompt,
-            user_content="Generate the dialogue script.",
-        ))
-    finally:
-        _loop.close()
+    # Use sync OpenAI client — asyncio.run() / loop.run_until_complete() both fail
+    # inside Colab's kernel because _get_running_loop() is always non-None there.
+    from openai import OpenAI
+    _client = OpenAI(
+        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        base_url=os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1"),
+    )
+    _resp = _client.chat.completions.create(
+        model=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
+        temperature=0.7,
+        max_completion_tokens=2000,
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user",   "content": "Generate the dialogue script."},
+        ],
+    )
+    raw = _resp.choices[0].message.content or ""
 
     script = raw.strip() if raw else ""
     if not script:
