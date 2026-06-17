@@ -419,7 +419,9 @@ class DiaModel(_BaseTTSModel):
         """
         self.load()
         tag = voice if voice and voice.startswith("[") else "[S1]"
-        output = self._model.generate(f"{tag} {text}")
+        # max_tokens caps generation to ~20s per segment (44100Hz / 512 hop ≈ 86 tok/s).
+        # Without this cap, a segment with no EOS token loops forever on T4.
+        output = self._model.generate(f"{tag} {text}", max_tokens=1720)
         return np.asarray(output, dtype=np.float32).squeeze()
 
 
