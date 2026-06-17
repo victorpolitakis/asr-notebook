@@ -3,7 +3,7 @@
 Real-time pipeline for long-form audio: VAD chunking → multi-model ASR → speaker diarization → LLM-based NER, summarization and chapter detection → TTS podcast generation. Runs at **~6× real-time** on a T4 GPU.
 
 **Author:** Πολιτάκης Βίκτωρ  
-**Supervisor:** Παναγιώτης Ζέρβας — Τμήμα ΗΜΤΥ, Πανεπιστήμιο Πελοποννήσου — Εαρινό 2026
+**Supervisor:** Παναγιώτης Ζέρβας — Τμήμα ΗΜΜΥ, Πανεπιστήμιο Πελοποννήσου — Εαρινό 2026
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/victoras136/asr-notebook/blob/main/Pipeline/notebook.ipynb)
 
