@@ -120,6 +120,45 @@ def _build_openai_client() -> Any:
         ) from exc
 
 
+def _call_llm_sync(
+    system_prompt: str,
+    user_content: str,
+    max_tokens: int = LLM_MAX_TOKENS,
+) -> str:
+    """Sync HTTP call to the OpenAI-compatible API using stdlib urllib only.
+
+    Used by podcast_pipeline._generate_script to avoid anyio/httpx entirely.
+    anyio 3.x (installed by some transitive dep) is missing TaskHandle, which
+    breaks AsyncOpenAI. urllib has no such dependency.
+    """
+    import json as _json
+    import urllib.request as _req
+
+    url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+    payload = {
+        "model": LLM_MODEL,
+        "temperature": LLM_TEMPERATURE,
+        "max_completion_tokens": max_tokens,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_content},
+        ],
+    }
+    data = _json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LLM_API_KEY or 'ollama'}",
+    }
+    request = _req.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with _req.urlopen(request, timeout=120) as resp:
+            result = _json.loads(resp.read().decode("utf-8"))
+        return result["choices"][0]["message"]["content"] or ""
+    except Exception as e:
+        logger.error("LLM call failed: %s", e)
+        return ""
+
+
 async def _call_llm(system_prompt: str, user_content: str) -> str:
     """
     Fire a single async LLM completion and return the raw response string.

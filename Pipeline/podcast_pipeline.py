@@ -28,8 +28,6 @@ from typing import Any
 
 import numpy as np
 
-import asyncio
-
 import config
 import drive_bridge as db
 import llm_integration
@@ -151,13 +149,13 @@ def _generate_script(job_config: dict) -> str:
 
     logger.info("Generating podcast script: ~%d words, tone=%s", duration_words, tone)
 
-    # nest_asyncio.apply() in colab_job_watcher patches the running kernel loop
-    # so run_until_complete() works even while the Colab loop is running.
-    loop = asyncio.get_event_loop()
-    raw = loop.run_until_complete(llm_integration._call_llm(
+    # Use sync urllib call to avoid anyio/httpx version conflicts.
+    # AsyncOpenAI needs anyio>=4 (TaskHandle), but some transitive deps cap it at 3.x.
+    raw = llm_integration._call_llm_sync(
         system_prompt=prompt,
         user_content="Generate the dialogue script.",
-    ))
+        max_tokens=4096,
+    )
 
     script = raw.strip() if raw else ""
     if not script:
