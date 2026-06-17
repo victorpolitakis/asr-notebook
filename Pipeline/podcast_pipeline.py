@@ -313,11 +313,14 @@ class KokoroModel(_BaseTTSModel):
                 "Kokoro not installed. Run: pip install kokoro>=0.9.4"
             )
 
-        import torch
         cache_dir = _get_cache_dir("kokoro")
         self._model = KPipeline(lang_code="a")
+        # Read actual sample rate from KPipeline — don't rely on the hardcoded 24000
+        self.sample_rate = int(
+            getattr(self._model, "sample_rate", getattr(self._model, "sr", 24000))
+        )
         self._loaded = True
-        logger.info("Kokoro loaded (lang=en, ~2GB VRAM)")
+        logger.info("Kokoro loaded (sr=%d)", self.sample_rate)
 
         # Cache to Drive after first load
         try:
@@ -330,14 +333,18 @@ class KokoroModel(_BaseTTSModel):
     def synthesize(self, text: str, voice: str | None = None) -> np.ndarray:
         self.load()
         voice = voice or "af_heart"
-        segments: list[np.ndarray] = []
+        chunks: list[np.ndarray] = []
 
         for _, _, audio in self._model(text, voice=voice, speed=1):
-            segments.append(audio)
+            # KPipeline may return a torch tensor or a (1, N) array — normalise to 1D
+            arr = np.asarray(audio, dtype=np.float32).squeeze()
+            if arr.ndim == 0:
+                arr = arr.reshape(1)
+            chunks.append(arr)
 
-        if not segments:
+        if not chunks:
             return np.array([], dtype=np.float32)
-        return np.concatenate(segments).astype(np.float32)
+        return np.concatenate(chunks)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -629,16 +636,21 @@ def _concat_segments(
     # Remove trailing silence
     combined = np.concatenate(parts[:-1])
 
-    # Write WAV first, then convert to MP3 via pydub.
-    # Always export at 44100 Hz: some LAME versions auto-select 48kHz for 24kHz input,
-    # causing the MP3 to play at 2x speed on standard players.
-    from pydub import AudioSegment
-    import scipy.io.wavfile as wavfile
+    # Write WAV with soundfile (explicit sample rate in header, no pydub quirks).
+    # Convert WAV → MP3 with ffmpeg directly: -ar 44100 forces a standard output
+    # rate so players don't misinterpret the stream (pydub/LAME can silently pick
+    # 48kHz for 24kHz input, making the MP3 play at 2x speed).
+    import soundfile as sf
+    import subprocess as _sp
 
     wav_path = output_path.replace(".mp3", ".wav")
-    wavfile.write(wav_path, sample_rate, (combined * 32767).astype(np.int16))
-    audio_seg = AudioSegment.from_wav(wav_path).set_frame_rate(44100)
-    audio_seg.export(output_path, format="mp3", bitrate=MP3_BITRATE)
+    sf.write(wav_path, combined, sample_rate, subtype="PCM_16")
+
+    _sp.run(
+        ["ffmpeg", "-y", "-i", wav_path,
+         "-ar", "44100", "-b:a", MP3_BITRATE, output_path],
+        check=True, capture_output=True,
+    )
     os.unlink(wav_path)
 
     duration = len(combined) / sample_rate
@@ -669,9 +681,18 @@ def generate_podcast(job_config: dict) -> dict:
     logger.info("🎙️ Podcast job %s: A=%s, B=%s", job_id, model_a, model_b)
 
     # ── 1. Script generation ──
+    # Only treat source_text as a ready-made script if it looks like a FULL dialogue:
+    # >= 4 lines with proper "Speaker A:" / "Speaker B:" prefixes (not just ASR
+    # diarization output where one or two turns happen to start with a speaker label).
     script = job_config.get("source_text", "")
-    if not script or not any(l.startswith("Speaker A:") or l.startswith("Speaker B:") for l in script.splitlines()):
-        logger.info("Generating script from source material...")
+    _prefixed_lines = [
+        l for l in script.splitlines()
+        if l.strip().startswith("Speaker A:") or l.strip().startswith("Speaker B:")
+    ]
+    _is_ready_script = len(_prefixed_lines) >= 4
+    if not _is_ready_script:
+        logger.info("Generating script from source material (%d prefixed lines found)...",
+                    len(_prefixed_lines))
         script = _generate_script(job_config)
 
     # ── 2. Parse script into segments ──
