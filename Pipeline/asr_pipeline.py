@@ -101,6 +101,16 @@ def _get_diarization() -> Any:
         if not hasattr(_ta, 'list_audio_backends'):
             _ta.list_audio_backends = lambda: ['soundfile']
         warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
+        # Patch hf_hub_download to translate the deprecated use_auth_token= kwarg to
+        # token= — newer huggingface_hub (>=0.24) removed use_auth_token but older
+        # pyannote still passes it internally when loading the model config from Hub.
+        import huggingface_hub as _hfh
+        _orig_dl = _hfh.hf_hub_download
+        def _patched_dl(*a, **kw):
+            if "use_auth_token" in kw:
+                kw["token"] = kw.pop("use_auth_token")
+            return _orig_dl(*a, **kw)
+        _hfh.hf_hub_download = _patched_dl
         from pyannote.audio import Pipeline as PypPipe
         hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
         logger.info("Loading pyannote …")
