@@ -28,8 +28,11 @@ from typing import Any
 
 import numpy as np
 
+import asyncio
+
 import config
 import drive_bridge as db
+import llm_integration
 
 logger = logging.getLogger(__name__)
 
@@ -148,29 +151,13 @@ def _generate_script(job_config: dict) -> str:
 
     logger.info("Generating podcast script: ~%d words, tone=%s", duration_words, tone)
 
-    # Use requests directly — the openai SDK's "sync" client still calls
-    # asyncio internals which fail in Colab's always-running kernel loop.
-    import requests as _req
-    _base = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    _resp = _req.post(
-        f"{_base}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model":       os.environ.get("LLM_MODEL", "gpt-4o-mini"),
-            "temperature": 0.7,
-            "max_tokens":  2000,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {"role": "user",   "content": "Generate the dialogue script."},
-            ],
-        },
-        timeout=120,
-    )
-    _resp.raise_for_status()
-    raw = _resp.json()["choices"][0]["message"]["content"] or ""
+    # nest_asyncio.apply() in colab_job_watcher patches the running kernel loop
+    # so run_until_complete() works even while the Colab loop is running.
+    loop = asyncio.get_event_loop()
+    raw = loop.run_until_complete(llm_integration._call_llm(
+        system_prompt=prompt,
+        user_content="Generate the dialogue script.",
+    ))
 
     script = raw.strip() if raw else ""
     if not script:

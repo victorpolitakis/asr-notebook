@@ -292,15 +292,20 @@ def _handle_podcast_job(file_info: dict) -> None:
             _make_status(job_id, "podcast", "podcast_tts", progress_pct=0.3, eta_seconds=240),
         )
 
-        # Patch the running Colab kernel loop to allow nested asyncio calls.
-        # Without this, any asyncio.run() / loop.run_until_complete() inside
-        # podcast_pipeline (including indirect calls from requests/httpx) raises
-        # "Cannot run the event loop while another loop is running".
+        # Patch the ACTUAL running Colab kernel loop to allow nested asyncio calls.
+        # apply() without args patches get_event_loop() which may differ from the
+        # actually-running kernel loop in Python 3.10+. We must patch get_running_loop().
         try:
+            import asyncio as _aio
             import nest_asyncio
-            nest_asyncio.apply()
+            try:
+                _running = _aio.get_running_loop()
+                nest_asyncio.apply(_running)
+                logger.info("nest_asyncio applied to running loop %s", _running)
+            except RuntimeError:
+                nest_asyncio.apply()   # no running loop — apply globally
         except ImportError:
-            pass
+            logger.warning("nest_asyncio not installed — podcast asyncio calls may fail")
 
         # Lazy import podcast_pipeline (may not be importable if deps missing)
         try:
