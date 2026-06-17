@@ -376,8 +376,14 @@ class DiaModel(_BaseTTSModel):
                     logger.warning("dia reinstall stderr: %s", r.stderr[-300:])
                 else:
                     logger.info("dia pinned to %s", self._DIA_COMMIT)
+                # dia's gradio dependency can downgrade anyio to 3.x, breaking openai.
+                # Restore anyio>=4.0.0 immediately after dia reinstall.
+                subprocess.run(
+                    [_sys.executable, "-m", "pip", "install", "-q", "anyio>=4.0.0"],
+                    capture_output=True, text=True, timeout=60,
+                )
                 for _mod in list(_sys.modules.keys()):
-                    if _mod.startswith("dia"):
+                    if _mod.startswith("dia") or _mod in ("anyio", "httpx"):
                         del _sys.modules[_mod]
         except ImportError:
             pass
