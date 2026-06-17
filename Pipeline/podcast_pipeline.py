@@ -629,19 +629,21 @@ def _concat_segments(
     # Remove trailing silence
     combined = np.concatenate(parts[:-1])
 
-    # Write WAV first, then convert to MP3 via pydub
+    # Write WAV first, then convert to MP3 via pydub.
+    # Always export at 44100 Hz: some LAME versions auto-select 48kHz for 24kHz input,
+    # causing the MP3 to play at 2x speed on standard players.
     from pydub import AudioSegment
     import scipy.io.wavfile as wavfile
 
     wav_path = output_path.replace(".mp3", ".wav")
     wavfile.write(wav_path, sample_rate, (combined * 32767).astype(np.int16))
-    audio_seg = AudioSegment.from_wav(wav_path)
+    audio_seg = AudioSegment.from_wav(wav_path).set_frame_rate(44100)
     audio_seg.export(output_path, format="mp3", bitrate=MP3_BITRATE)
     os.unlink(wav_path)
 
     duration = len(combined) / sample_rate
     logger.info("Exported MP3: %.1fs, %d segments → %s", duration, len(audio_segments), output_path)
-    return output_path
+    return output_path, duration
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -721,12 +723,11 @@ def generate_podcast(job_config: dict) -> dict:
 
     # ── 4. Concatenate & export ──
     mp3_path = str(output_dir / f"{job_id}.mp3")
-    _concat_segments(audio_segments, mp3_path, sample_rate)
+    _, duration_sec = _concat_segments(audio_segments, mp3_path, sample_rate)
 
     # ── 5. Unload models to free VRAM ──
     _unload_all()
 
-    duration_sec = float(len(audio_segments[0]) / sample_rate) if audio_segments else 0
     word_count = len(script.split())
 
     return {
