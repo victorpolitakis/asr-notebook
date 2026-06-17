@@ -1041,13 +1041,15 @@ def _page_results() -> None:
                 mv = {**mv, "total_duration_sec": main_dur}
             all_transcripts[_DISPLAY_MAP.get(mk, mk.upper())] = mv
 
+        _n_chapters = len(s.get("chapters") or []) or None
         if len(all_transcripts) > 1:
             model_tabs = st.tabs(list(all_transcripts.keys()))
             for m_tab, (mname, trans) in zip(model_tabs, all_transcripts.items()):
                 with m_tab:
-                    _results_transcript(trans, key=mname.replace(" ", "_").lower())
+                    ch = _n_chapters if mname == "Whisper Turbo" else None
+                    _results_transcript(trans, key=mname.replace(" ", "_").lower(), n_chapters=ch)
         else:
-            _results_transcript(t)
+            _results_transcript(t, n_chapters=_n_chapters)
     with tab_ent:
         _results_entities(s)
     with tab_sum:
@@ -1056,7 +1058,7 @@ def _page_results() -> None:
         _results_chat(s)
 
 
-def _results_transcript(t: dict, key: str = "main") -> None:
+def _results_transcript(t: dict, key: str = "main", n_chapters: int | None = None) -> None:
     segs  = _segments_from_transcript(t)
     dur   = t.get("total_duration_sec", 0)
     langs = t.get("languages_detected", [])
@@ -1067,7 +1069,10 @@ def _results_transcript(t: dict, key: str = "main") -> None:
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Duration",  _fmt_time(dur))
-    c2.metric("Segments",  len(segs))
+    if n_chapters is not None:
+        c2.metric("Chapters", n_chapters)
+    else:
+        c2.metric("Segments", len(segs))
     c3.metric("Languages", ", ".join(langs) if langs else "en")
     c4.metric("Speakers",  n_speakers)
 
