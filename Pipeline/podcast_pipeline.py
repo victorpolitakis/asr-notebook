@@ -150,10 +150,16 @@ def _generate_script(job_config: dict) -> str:
 
     logger.info("Generating podcast script: ~%d words, tone=%s", duration_words, tone)
 
-    raw = asyncio.run(llm_integration._call_llm(
-        system_prompt=prompt,
-        user_content="Generate the dialogue script.",
-    ))
+    # asyncio.run() fails when called from within Colab's running kernel loop.
+    # Explicitly create and run a fresh loop to bypass the "is loop running?" check.
+    _loop = asyncio.new_event_loop()
+    try:
+        raw = _loop.run_until_complete(llm_integration._call_llm(
+            system_prompt=prompt,
+            user_content="Generate the dialogue script.",
+        ))
+    finally:
+        _loop.close()
 
     script = raw.strip() if raw else ""
     if not script:
