@@ -49,6 +49,28 @@ _diarization_pipeline = None
 _diarization_available: bool | None = None
 
 
+def unload_whisper() -> None:
+    """Explicitly free the cached Whisper model from CUDA VRAM.
+
+    Called by colab_job_watcher before running extra comparison models.
+    torch.cuda.empty_cache() alone does NOT free CTranslate2 allocations —
+    unload_model() is required to actually release the VRAM.
+    """
+    global _whisper_model
+    if _whisper_model is None:
+        return
+    try:
+        _whisper_model.model.unload_model()
+    except Exception:
+        pass
+    _whisper_model = None
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    logger.info("Whisper model unloaded from VRAM.")
+
+
 def _get_whisper() -> WhisperModel:
     global _whisper_model, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
     if _whisper_model is not None:

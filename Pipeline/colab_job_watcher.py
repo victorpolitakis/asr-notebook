@@ -156,18 +156,14 @@ def _handle_asr_job(file_info: dict) -> None:
         t.join()
         success = result_holder.get("success", False)
 
-        # Free the main pipeline's cached whisper model from VRAM so extra models
-        # can load without hitting an OOM from the turbo model staying resident.
+        # Free the turbo model from VRAM before extra models load.
+        # Setting _whisper_model = None alone is insufficient — CTranslate2 has its
+        # own allocator; unload_model() is the only way to actually release the VRAM.
         try:
-            import gc
-            import torch
             import asr_pipeline as _asr
-            _asr._whisper_model = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
+            _asr.unload_whisper()
+        except Exception as _e:
+            logger.warning("Could not unload main whisper model: %s", _e)
 
         db.write_status(
             job_id,

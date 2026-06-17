@@ -64,6 +64,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypedDict
@@ -241,7 +242,7 @@ async def _generate_chapters(transcript: dict) -> list[ChapterDict]:
 
     raw = await _call_llm(_CHAPTERS_SYSTEM_PROMPT, user_content)
     try:
-        parsed: list[dict] = json.loads(raw)
+        parsed: list[dict] = json.loads(_strip_trailing_commas(raw))
     except json.JSONDecodeError:
         logger.warning("Chapter LLM returned non-JSON: %r", raw[:200])
         # Graceful fallback: one chapter per ticker window
@@ -342,11 +343,16 @@ async def _generate_executive(user_content: str) -> str:
     return raw.strip()
 
 
+def _strip_trailing_commas(s: str) -> str:
+    """Remove trailing commas before ] or } so LLM-generated JSON parses cleanly."""
+    return re.sub(r',\s*([}\]])', r'\1', s)
+
+
 async def _generate_deep_dive(user_content: str) -> DeepDiveDict:
     """Level 5 — bullet points, key takeaways, action items."""
     raw = await _call_llm(_DEEP_DIVE_SYSTEM_PROMPT, user_content, max_tokens=1200)
     try:
-        parsed: dict = json.loads(raw)
+        parsed: dict = json.loads(_strip_trailing_commas(raw))
     except json.JSONDecodeError:
         logger.warning("Deep-dive LLM returned non-JSON: %r", raw[:200])
         # Graceful fallback — return empty structured object

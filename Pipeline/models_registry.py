@@ -54,6 +54,12 @@ def transcribe_whisper(audio_path: str | Path, model_size: str = "turbo") -> str
         )
         text = " ".join(s.text.strip() for s in segments).strip()
     finally:
+        # unload_model() releases the CTranslate2 CUDA allocation.
+        # del + empty_cache() alone does NOT free CTranslate2's own VRAM pool.
+        try:
+            model.model.unload_model()
+        except Exception:
+            pass
         del model
         _free_cuda()
     return text
