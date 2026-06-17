@@ -365,9 +365,6 @@ class DiaModel(_BaseTTSModel):
             return
 
         # Detect and fix incompatible dia version before importing.
-        # The June-27-2025 refactor changed DiaConfig to require decoder_config/encoder_config
-        # at top level, which doesn't match nari-labs/Dia-1.6B Hub config format.
-        # Use --no-deps to skip gradio (~13 min install); only dac is needed for inference.
         try:
             from dia.config import DiaConfig as _dc
             if "decoder_config" in getattr(_dc, "model_fields", {}):
@@ -399,26 +396,31 @@ class DiaModel(_BaseTTSModel):
                 f"&& pip install descript-audio-codec>=1.0.0"
             )
 
-        import torch
         self._model = Dia.from_pretrained("nari-labs/Dia-1.6B")
+
+        # Read the actual sample rate from the model instead of assuming 44100.
+        # descript-audio-codec versions differ; wrong rate causes 2x playback speed.
+        try:
+            self.sample_rate = int(self._model.config.data.sample_rate)
+        except AttributeError:
+            try:
+                self.sample_rate = int(self._model.sr)
+            except AttributeError:
+                self.sample_rate = 44100
+        logger.info("Dia-1.6B loaded (~10GB VRAM, sr=%d)", self.sample_rate)
         self._loaded = True
-        logger.info("Dia-1.6B loaded (~10GB VRAM)")
 
     def synthesize(self, text: str, voice: str | None = None) -> np.ndarray:
-        # For single-speaker, just pass text directly
-        self.load()
-        output = self._model.generate(text)
-        # output is already a numpy array at 44100 Hz
-        return np.array(output, dtype=np.float32)
+        """Synthesize one dialogue turn.
 
-    def synthesize_multi_speaker(self, script: str) -> np.ndarray:
-        """Native multi-speaker: convert Speaker tags to [S1]/[S2] and generate in one pass."""
+        voice should be "[S1]" for speaker A or "[S2]" for speaker B.
+        Dia-1.6B has a ~30s max generation window — always call per-segment,
+        never pass the entire script in one shot.
+        """
         self.load()
-        # Convert from our format to Dia's native format
-        converted = script.replace("Speaker A:", "[S1]").replace("Speaker B:", "[S2]")
-        logger.info("Dia multi-speaker: %d chars converted", len(converted))
-        output = self._model.generate(converted)
-        return np.array(output, dtype=np.float32)
+        tag = voice if voice and voice.startswith("[") else "[S1]"
+        output = self._model.generate(f"{tag} {text}")
+        return np.asarray(output, dtype=np.float32).squeeze()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -703,15 +705,18 @@ def generate_podcast(job_config: dict) -> dict:
     # ── 3. TTS synthesis ──
     output_dir = Path(tempfile.mkdtemp(prefix="podcast_"))
 
-    # Check if both speakers use Dia — native multi-speaker mode
+    # Dia has a ~30s max generation window per call — always use per-segment
+    # synthesis regardless of whether both speakers are Dia.  Passing the full
+    # script in one generate() call silently truncates everything after ~30s.
     if model_a == "dia" and model_b == "dia":
-        logger.info("Both speakers use Dia — native multi-speaker single pass")
+        logger.info("Dia dual-speaker: per-segment synthesis (avoids ~30s truncation)")
         dia = _get_model("dia")
-        # Convert entire script to Dia format
-        dia_script = script.replace("Speaker A:", "[S1]").replace("Speaker B:", "[S2]")
-        audio = dia.synthesize_multi_speaker(dia_script)
-        audio_segments = [audio]
-        model_info = {"speaker_a": "Dia-1.6B", "speaker_b": "Dia-1.6B", "mode": "native_multi_speaker"}
+        audio_segments = []
+        for seg in segments:
+            tag = "[S1]" if seg["speaker"] == "A" else "[S2]"
+            audio = dia.synthesize(seg["text"], voice=tag)
+            audio_segments.append(audio)
+        model_info = {"speaker_a": "Dia-1.6B [S1]", "speaker_b": "Dia-1.6B [S2]", "mode": "per_segment"}
         sample_rate = dia.sample_rate
     else:
         # Per-speaker, per-segment synthesis
