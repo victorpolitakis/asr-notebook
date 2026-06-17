@@ -305,7 +305,35 @@ def _handle_podcast_job(file_info: dict) -> None:
             db.archive_input_file(file_id)
             return
 
-        result = pp.generate_podcast(job_config)
+        # Run in a fresh thread so asyncio.run() inside podcast_pipeline works —
+        # Colab's IPython kernel already has a running event loop and asyncio.run()
+        # cannot be called from within one.
+        import threading
+        import asyncio as _asyncio
+        _pod_result: dict[str, Any] = {}
+
+        def _run_podcast() -> None:
+            loop = _asyncio.new_event_loop()
+            _asyncio.set_event_loop(loop)
+            try:
+                _pod_result["data"] = pp.generate_podcast(job_config)
+            except Exception as exc:
+                _pod_result["exc"] = exc
+            finally:
+                try:
+                    pending = _asyncio.all_tasks(loop)
+                    if pending:
+                        loop.run_until_complete(_asyncio.gather(*pending, return_exceptions=True))
+                except Exception:
+                    pass
+                loop.close()
+
+        _pt = threading.Thread(target=_run_podcast)
+        _pt.start()
+        _pt.join()
+        if "exc" in _pod_result:
+            raise _pod_result["exc"]
+        result = _pod_result.get("data", {})
 
         # Upload MP3 and metadata to output/podcasts/
         if result.get("mp3_path") and Path(result["mp3_path"]).exists():
