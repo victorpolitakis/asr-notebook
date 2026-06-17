@@ -292,6 +292,16 @@ def _handle_podcast_job(file_info: dict) -> None:
             _make_status(job_id, "podcast", "podcast_tts", progress_pct=0.3, eta_seconds=240),
         )
 
+        # Patch the running Colab kernel loop to allow nested asyncio calls.
+        # Without this, any asyncio.run() / loop.run_until_complete() inside
+        # podcast_pipeline (including indirect calls from requests/httpx) raises
+        # "Cannot run the event loop while another loop is running".
+        try:
+            import nest_asyncio
+            nest_asyncio.apply()
+        except ImportError:
+            pass
+
         # Lazy import podcast_pipeline (may not be importable if deps missing)
         try:
             import podcast_pipeline as pp
