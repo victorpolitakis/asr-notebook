@@ -13,8 +13,16 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import gc
+
 import numpy as np
 import torch
+
+
+def _free_cuda() -> None:
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +44,19 @@ def transcribe_whisper(audio_path: str | Path, model_size: str = "turbo") -> str
     logger.info("Loading faster-whisper %s on %s...", model_size, device)
     model = WhisperModel(model_size, device=device, compute_type=compute_type)
 
-    segments, _ = model.transcribe(
-        str(audio_path),
-        language=None,
-        vad_filter=True,
-        beam_size=3,
-        task="transcribe",
-    )
-    return " ".join(s.text.strip() for s in segments).strip()
+    try:
+        segments, _ = model.transcribe(
+            str(audio_path),
+            language=None,
+            vad_filter=True,
+            beam_size=3,
+            task="transcribe",
+        )
+        text = " ".join(s.text.strip() for s in segments).strip()
+    finally:
+        del model
+        _free_cuda()
+    return text
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -74,13 +87,17 @@ def transcribe_parakeet(audio_path: str | Path) -> str:
     inputs = processor(audio_arr, sampling_rate=16000, return_tensors="pt", padding="longest")
     inputs = inputs.to(device, dtype=model.dtype)
 
-    with torch.no_grad():
-        out = model.generate(**inputs, return_dict_in_generate=True)
-    text = processor.decode(out.sequences, skip_special_tokens=True)
+    try:
+        with torch.no_grad():
+            out = model.generate(**inputs, return_dict_in_generate=True)
+        text = processor.decode(out.sequences, skip_special_tokens=True)
 
-    if isinstance(text, (list, tuple)):
-        text = text[0] if text else ""
-    return text.strip()
+        if isinstance(text, (list, tuple)):
+            text = text[0] if text else ""
+        return text.strip()
+    finally:
+        del model, processor
+        _free_cuda()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -121,23 +138,27 @@ def transcribe_canary(audio_path: str | Path) -> str:
     n_chunks = max(1, (len(audio_arr) - overlap_samples + step - 1) // step)
 
     transcriptions = []
-    for i in range(n_chunks):
-        start = i * step
-        end = min(start + chunk_samples, len(audio_arr))
-        chunk = audio_arr[start:end]
+    try:
+        for i in range(n_chunks):
+            start = i * step
+            end = min(start + chunk_samples, len(audio_arr))
+            chunk = audio_arr[start:end]
 
-        det = whisper.detect_language(chunk)
-        lang = (det[0] if isinstance(det, tuple) else "en") or "en"
+            det = whisper.detect_language(chunk)
+            lang = (det[0] if isinstance(det, tuple) else "en") or "en"
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as cf:
-            torchaudio.save(cf.name, torch.from_numpy(chunk).unsqueeze(0), 16000)
-            chunk_path = cf.name
-        try:
-            output = model.transcribe([chunk_path], source_lang=lang, target_lang=lang)
-            text = output[0].text if output else ""
-            transcriptions.append(text)
-        finally:
-            os.unlink(chunk_path)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as cf:
+                torchaudio.save(cf.name, torch.from_numpy(chunk).unsqueeze(0), 16000)
+                chunk_path = cf.name
+            try:
+                output = model.transcribe([chunk_path], source_lang=lang, target_lang=lang)
+                text = output[0].text if output else ""
+                transcriptions.append(text)
+            finally:
+                os.unlink(chunk_path)
+    finally:
+        del model, whisper
+        _free_cuda()
 
     return " ".join(transcriptions).strip()
 
@@ -187,6 +208,8 @@ def transcribe_qwen(audio_path: str | Path) -> str:
         return response.strip()
     finally:
         os.unlink(temp_wav)
+        del model, processor
+        _free_cuda()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -202,10 +225,14 @@ def transcribe_nemotron(audio_path: str | Path) -> str:
     model = ASRModel.from_pretrained("nvidia/stt_en_conformer_transducer_large_nemotron")
     model = model.to(device).eval()
 
-    output = model.transcribe([str(audio_path)])
-    if isinstance(output, list) and len(output) > 0:
-        return output[0] if isinstance(output[0], str) else getattr(output[0], 'text', str(output[0]))
-    return str(output).strip()
+    try:
+        output = model.transcribe([str(audio_path)])
+        if isinstance(output, list) and len(output) > 0:
+            return output[0] if isinstance(output[0], str) else getattr(output[0], 'text', str(output[0]))
+        return str(output).strip()
+    finally:
+        del model
+        _free_cuda()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

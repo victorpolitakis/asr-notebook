@@ -104,7 +104,11 @@ def _get_diarization() -> Any:
         from pyannote.audio import Pipeline as PypPipe
         hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
         logger.info("Loading pyannote …")
-        _diarization_pipeline = PypPipe.from_pretrained(PYANNOTE_MODEL, token=hf_token)
+        try:
+            _diarization_pipeline = PypPipe.from_pretrained(PYANNOTE_MODEL, token=hf_token)
+        except TypeError:
+            # Older pyannote versions use use_auth_token= instead of token=
+            _diarization_pipeline = PypPipe.from_pretrained(PYANNOTE_MODEL, use_auth_token=hf_token)
         if torch.backends.mps.is_available():
             _diarization_pipeline = _diarization_pipeline.to(torch.device("mps"))
             logger.info("Pyannote → MPS.")

@@ -156,6 +156,19 @@ def _handle_asr_job(file_info: dict) -> None:
         t.join()
         success = result_holder.get("success", False)
 
+        # Free the main pipeline's cached whisper model from VRAM so extra models
+        # can load without hitting an OOM from the turbo model staying resident.
+        try:
+            import gc
+            import torch
+            import asr_pipeline as _asr
+            _asr._whisper_model = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
         db.write_status(
             job_id,
             _make_status(job_id, "asr", "normalization", progress_pct=0.8, eta_seconds=60),
@@ -209,6 +222,14 @@ def _handle_asr_job(file_info: dict) -> None:
             )
             try:
                 raw_text = _run_extra_model(model_name, tmp_path)
+                # Belt-and-suspenders: flush any lingering CUDA allocations between models
+                try:
+                    import gc, torch as _torch
+                    gc.collect()
+                    if _torch.cuda.is_available():
+                        _torch.cuda.empty_cache()
+                except Exception:
+                    pass
                 model_transcript = {
                     "source_file": filename,
                     "full_text": raw_text,
