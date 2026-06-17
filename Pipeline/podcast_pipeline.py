@@ -353,14 +353,40 @@ class DiaModel(_BaseTTSModel):
     _loaded: bool = False
     _model: Any = None
 
+    _DIA_COMMIT = "2811af1c5f47"  # pre-June-2025-refactor, compatible with Dia-1.6B Hub config
+
     def load(self) -> None:
         if self._loaded:
             return
+
+        # Detect and fix incompatible dia version before importing.
+        # The June-27-2025 refactor changed DiaConfig to require decoder_config/encoder_config
+        # at top level, which doesn't match nari-labs/Dia-1.6B Hub config format.
+        try:
+            from dia.config import DiaConfig as _dc
+            if "decoder_config" in getattr(_dc, "model_fields", {}):
+                import subprocess, sys as _sys
+                logger.info("Incompatible dia detected — reinstalling @%s...", self._DIA_COMMIT)
+                r = subprocess.run(
+                    [_sys.executable, "-m", "pip", "install", "-q", "--force-reinstall",
+                     f"git+https://github.com/nari-labs/dia.git@{self._DIA_COMMIT}"],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if r.returncode != 0:
+                    logger.warning("dia reinstall stderr: %s", r.stderr[-300:])
+                else:
+                    logger.info("dia pinned to %s", self._DIA_COMMIT)
+                for _mod in list(_sys.modules.keys()):
+                    if _mod.startswith("dia"):
+                        del _sys.modules[_mod]
+        except ImportError:
+            pass
+
         try:
             from dia.model import Dia
         except ImportError:
             raise RuntimeError(
-                "Dia not installed. Run: pip install git+https://github.com/nari-labs/dia.git"
+                f"Dia not installed. Run: pip install git+https://github.com/nari-labs/dia.git@{self._DIA_COMMIT}"
             )
 
         import torch
