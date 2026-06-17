@@ -148,23 +148,29 @@ def _generate_script(job_config: dict) -> str:
 
     logger.info("Generating podcast script: ~%d words, tone=%s", duration_words, tone)
 
-    # Use sync OpenAI client — asyncio.run() / loop.run_until_complete() both fail
-    # inside Colab's kernel because _get_running_loop() is always non-None there.
-    from openai import OpenAI
-    _client = OpenAI(
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-        base_url=os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1"),
+    # Use requests directly — the openai SDK's "sync" client still calls
+    # asyncio internals which fail in Colab's always-running kernel loop.
+    import requests as _req
+    _base = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    _resp = _req.post(
+        f"{_base}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model":       os.environ.get("LLM_MODEL", "gpt-4o-mini"),
+            "temperature": 0.7,
+            "max_tokens":  2000,
+            "messages": [
+                {"role": "system", "content": prompt},
+                {"role": "user",   "content": "Generate the dialogue script."},
+            ],
+        },
+        timeout=120,
     )
-    _resp = _client.chat.completions.create(
-        model=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
-        temperature=0.7,
-        max_completion_tokens=2000,
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user",   "content": "Generate the dialogue script."},
-        ],
-    )
-    raw = _resp.choices[0].message.content or ""
+    _resp.raise_for_status()
+    raw = _resp.json()["choices"][0]["message"]["content"] or ""
 
     script = raw.strip() if raw else ""
     if not script:
