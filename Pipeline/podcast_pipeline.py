@@ -707,54 +707,58 @@ def generate_podcast(job_config: dict) -> dict:
     # ── 3. TTS synthesis ──
     output_dir = Path(tempfile.mkdtemp(prefix="podcast_"))
 
-    # Dia has a ~30s max generation window per call — always use per-segment
-    # synthesis regardless of whether both speakers are Dia.  Passing the full
-    # script in one generate() call silently truncates everything after ~30s.
-    if model_a == "dia" and model_b == "dia":
-        logger.info("Dia dual-speaker: per-segment synthesis (avoids ~30s truncation)")
-        dia = _get_model("dia")
-        audio_segments = []
-        for seg in segments:
-            tag = "[S1]" if seg["speaker"] == "A" else "[S2]"
-            audio = dia.synthesize(seg["text"], voice=tag)
-            audio_segments.append(audio)
-        model_info = {"speaker_a": "Dia-1.6B [S1]", "speaker_b": "Dia-1.6B [S2]", "mode": "per_segment"}
-        sample_rate = dia.sample_rate
-    else:
-        # Per-speaker, per-segment synthesis
-        audio_segments = []
-        model_info = {}
+    try:
+        # Dia has a ~30s max generation window per call — always use per-segment
+        # synthesis regardless of whether both speakers are Dia.  Passing the full
+        # script in one generate() call silently truncates everything after ~30s.
+        if model_a == "dia" and model_b == "dia":
+            logger.info("Dia dual-speaker: per-segment synthesis (%d segments)", len(segments))
+            dia = _get_model("dia")
+            audio_segments = []
+            for i, seg in enumerate(segments):
+                tag = "[S1]" if seg["speaker"] == "A" else "[S2]"
+                logger.info("  Dia segment %d/%d (%s, %d chars)",
+                            i + 1, len(segments), tag, len(seg["text"]))
+                audio = dia.synthesize(seg["text"], voice=tag)
+                audio_segments.append(audio)
+            model_info = {"speaker_a": "Dia-1.6B [S1]", "speaker_b": "Dia-1.6B [S2]", "mode": "per_segment"}
+            sample_rate = dia.sample_rate
+        else:
+            # Per-speaker, per-segment synthesis
+            audio_segments = []
+            model_info = {}
 
-        model_a_obj = _get_model(model_a)
-        model_b_obj = _get_model(model_b)
-        sample_rate = model_a_obj.sample_rate  # Use speaker A's rate as reference
+            model_a_obj = _get_model(model_a)
+            model_b_obj = _get_model(model_b)
+            sample_rate = model_a_obj.sample_rate
 
-        # Audio sample rate may differ between models — resample if needed
-        for seg in segments:
-            model = model_a_obj if seg["speaker"] == "A" else model_b_obj
-            voice = speaker_a.get("voice") if seg["speaker"] == "A" else speaker_b.get("voice")
-            audio = model.synthesize(seg["text"], voice=voice)
+            for seg in segments:
+                model = model_a_obj if seg["speaker"] == "A" else model_b_obj
+                voice = speaker_a.get("voice") if seg["speaker"] == "A" else speaker_b.get("voice")
+                audio = model.synthesize(seg["text"], voice=voice)
 
-            # Resample to match reference rate if needed
-            if model.sample_rate != sample_rate:
-                import scipy.signal
-                ratio = sample_rate / model.sample_rate
-                audio = scipy.signal.resample(audio, int(len(audio) * ratio))
+                if model.sample_rate != sample_rate:
+                    import scipy.signal
+                    ratio = sample_rate / model.sample_rate
+                    audio = scipy.signal.resample(audio, int(len(audio) * ratio))
 
-            audio_segments.append(audio)
+                audio_segments.append(audio)
 
-        model_info = {
-            "speaker_a": MODEL_REGISTRY.get(model_a, {}).get("name", model_a),
-            "speaker_b": MODEL_REGISTRY.get(model_b, {}).get("name", model_b),
-            "mode": "per_segment",
-        }
+            model_info = {
+                "speaker_a": MODEL_REGISTRY.get(model_a, {}).get("name", model_a),
+                "speaker_b": MODEL_REGISTRY.get(model_b, {}).get("name", model_b),
+                "mode": "per_segment",
+            }
 
-    # ── 4. Concatenate & export ──
-    mp3_path = str(output_dir / f"{job_id}.mp3")
-    _, duration_sec = _concat_segments(audio_segments, mp3_path, sample_rate)
+        # ── 4. Concatenate & export ──
+        mp3_path = str(output_dir / f"{job_id}.mp3")
+        _, duration_sec = _concat_segments(audio_segments, mp3_path, sample_rate)
 
-    # ── 5. Unload models to free VRAM ──
-    _unload_all()
+    finally:
+        # Always unload — even if synthesis or export raised an exception.
+        # Without this, a failed job leaves the TTS model in VRAM and the next
+        # job will OOM when it tries to load the model again.
+        _unload_all()
 
     word_count = len(script.split())
 
