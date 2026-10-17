@@ -50,6 +50,11 @@ The Streamlit app only needs UI dependencies (no PyTorch). It uploads the audio 
 
 The Streamlit app has five pages: Upload, Results (transcript, entities, chapters, summaries, chat), Accuracy (WER, CER, ROUGE and BLEU against a reference transcript you upload, via `App/comparison_metrics.py`), Podcast and History.
 
+## Results
+
+- **Accuracy:** 4.5% word error rate with Whisper Turbo on a 3-minute clean English clip.
+- **Speed:** about 6× faster than real time on a Colab T4 GPU.
+
 ## Evaluation
 
 The `Benchmarks/` folder contains the scripts used to measure the pipeline:
