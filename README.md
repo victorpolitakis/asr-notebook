@@ -5,15 +5,27 @@ A Python pipeline that takes a long audio file (podcast, lecture, meeting) and p
 ## Architecture
 
 ```mermaid
-flowchart LR
-    UI["Streamlit app<br/>App/streamlit_app.py"] -- "audio + job.json" --> IN[("Google Drive<br/>ece22073/input/")]
-    IN -- "polled every 10 s" --> W["Colab GPU worker<br/>colab_job_watcher.py"]
-    W --> VAD["Silero VAD chunking<br/>audio_processor.py"]
-    VAD --> ASR["ASR: faster-whisper turbo<br/>asr_pipeline.py"]
-    ASR --> DIA["pyannote diarization<br/>speaker-diarization-3.1"]
-    DIA --> LLM["LLM post-processing<br/>llm_integration.py<br/>transcript_normalizer.py<br/>summary_generator.py"]
-    LLM --> OUT[("Google Drive<br/>ece22073/output/{job_id}/")]
-    W -. "optional extra models" .-> REG["models_registry.py<br/>6 ASR backends"]
+flowchart TD
+    UI["Streamlit app<br/>App/streamlit_app.py"]
+
+    subgraph Drive["Google Drive"]
+        IN[("ece22073/input/")]
+        OUT[("ece22073/output/{job_id}/")]
+    end
+
+    subgraph Colab["Colab GPU worker · colab_job_watcher.py"]
+        VAD["Silero VAD chunking<br/>audio_processor.py"]
+        ASR["ASR: faster-whisper turbo<br/>asr_pipeline.py"]
+        DIA["pyannote diarization<br/>speaker-diarization-3.1"]
+        LLM["LLM post-processing<br/>llm_integration.py · transcript_normalizer.py<br/>summary_generator.py"]
+        REG["models_registry.py<br/>6 ASR backends (optional)"]
+        VAD --> ASR --> DIA --> LLM
+        VAD -.-> REG
+    end
+
+    UI -- "audio + job.json" --> IN
+    IN -- "polled every 10 s" --> VAD
+    LLM --> OUT
     REG -.-> OUT
     OUT -- "polled every 15 s" --> UI
 ```
