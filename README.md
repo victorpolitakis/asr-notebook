@@ -5,32 +5,37 @@ A Python pipeline that takes a long audio file (podcast, lecture, meeting) and p
 ## Architecture
 
 ```mermaid
-flowchart TD
-    UI["Streamlit app<br/>App/streamlit_app.py"]
+flowchart BT
+    UI["Streamlit app (laptop)"]
+    Q[("Google Drive job queue")]
 
-    subgraph Drive["Google Drive"]
-        IN[("ece22073/input/")]
-        OUT[("ece22073/output/{job_id}/")]
+    subgraph W["Colab GPU worker"]
+        direction LR
+        VAD["VAD chunking"] --> ASR["ASR<br/>(faster-whisper)"]
+        ASR --> DIA["Speaker<br/>diarization"]
+        DIA --> LLM["LLM summaries<br/>and entities"]
     end
 
-    subgraph Colab["Colab GPU worker · colab_job_watcher.py"]
-        VAD["Silero VAD chunking<br/>audio_processor.py"]
-        ASR["ASR: faster-whisper turbo<br/>asr_pipeline.py"]
-        DIA["pyannote diarization<br/>speaker-diarization-3.1"]
-        LLM["LLM post-processing<br/>llm_integration.py · transcript_normalizer.py<br/>summary_generator.py"]
-        REG["models_registry.py<br/>6 ASR backends (optional)"]
-        VAD --> ASR --> DIA --> LLM
-        VAD -.-> REG
-    end
-
-    UI -- "audio + job.json" --> IN
-    IN -- "polled every 10 s" --> VAD
-    LLM --> OUT
-    REG -.-> OUT
-    OUT -- "polled every 15 s" --> UI
+    UI -- "1 · upload audio" --> Q
+    Q -- "2 · new job, checked every 10 s" --> W
+    W -- "3 · results" --> Q
+    Q -- "4 · status and results, checked every 15 s" --> UI
 ```
 
-The Streamlit app only needs UI dependencies (no PyTorch). It uploads the audio and a `job.json` to a Drive folder and polls `status.json` for progress. A Colab notebook (`Pipeline/notebook.ipynb`) installs the ML stack, mounts Drive and runs `colab_job_watcher.main_loop()`, which picks up new jobs, runs the pipeline and writes results back. The watcher stops itself after 5 minutes without jobs. A job that has not updated its status for 10 minutes is shown as stalled.
+Where things live:
+
+| Component | File |
+|---|---|
+| Streamlit app | `App/streamlit_app.py` |
+| Drive access (upload, status, results) | `Pipeline/drive_bridge.py` |
+| Colab worker loop | `Pipeline/colab_job_watcher.py`, started from `Pipeline/notebook.ipynb` |
+| VAD chunking | `Pipeline/audio_processor.py` |
+| ASR and speaker diarization | `Pipeline/asr_pipeline.py` |
+| Optional extra ASR backends | `Pipeline/models_registry.py` |
+| LLM steps | `Pipeline/llm_integration.py`, `Pipeline/transcript_normalizer.py`, `Pipeline/summary_generator.py` |
+| Polling intervals and timeouts | `Pipeline/config.py` |
+
+The Streamlit app only needs UI dependencies (no PyTorch). It uploads the audio to `ece22073/input/` on Drive, writes a `meta.json` with the selected ASR models to `ece22073/output/{job_id}/`, and polls `status.json` in that folder for progress. A Colab notebook (`Pipeline/notebook.ipynb`) installs the ML stack, mounts Drive and runs `colab_job_watcher.main_loop()`, which picks up new jobs, runs the pipeline and writes results to the same output folder. The watcher stops itself after 5 minutes without jobs. A job that has not updated its status for 10 minutes is shown as stalled.
 
 ## What the pipeline does
 
