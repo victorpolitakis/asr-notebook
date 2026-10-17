@@ -1,330 +1,136 @@
-# ECE22073 — AI Audio Assistant: Multilingual Podcast Summarizer
+# AI Audio Assistant
 
-Real-time pipeline for long-form audio: VAD chunking → multi-model ASR → speaker diarization → LLM-based NER, summarization and chapter detection → TTS podcast generation. Runs at **~6× real-time** on a T4 GPU.
+A Python pipeline that takes a long audio file (podcast, lecture, meeting) and produces a speaker-labelled transcript, named entities, three levels of summary, timestamped chapters and a chat interface for asking questions about the recording. It was built as the course project for ECE22073. The goal was to process recordings longer than an hour on a free Colab GPU while keeping the user interface on a laptop, so the two halves talk through Google Drive instead of a server.
 
-**Author:** Πολιτάκης Βίκτωρ  
-**Supervisor:** Παναγιώτης Ζέρβας — Τμήμα ΗΜΜΥ, Πανεπιστήμιο Πελοποννήσου — Εαρινό 2026
+## Architecture
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/victoras136/asr-notebook/blob/main/Pipeline/notebook.ipynb)
-
----
-
-## How it works
-
-![Full system pipeline](assets/pipeline.png)
-
-The system is organised into four layers separated by dashed swim-lane borders. The **Streamlit web app** submits audio and job config via `drive_bridge.py` and auto-polls Google Drive every 15 s. **Google Drive** acts as the job queue and persistent storage. The **Google Colab T4 GPU** runtime runs `colab_job_watcher.py`, which orchestrates audio pre-processing (Silero-VAD chunking at 16 kHz), up to six parallel ASR models, pyannote speaker diarization, and four concurrent LLM calls (topic extraction, entity recognition, three-level summarization, YouTube-style chapter detection). An optional Podcast Pipeline generates a two-speaker script and synthesises it with a selected TTS model. All LLM and gated-model calls route to **external APIs** (OpenAI, HuggingFace Hub).
-
----
-
-## Repository layout
-
-```
-asr-notebook/
-├── App/
-│   ├── streamlit_app.py          # Single-file Streamlit UI (dark amber theme)
-│   ├── comparison_metrics.py     # WER / ROUGE / BLEU diff viewer
-│   ├── requirements.txt          # UI-only deps (no ML — ML runs on Colab)
-│   ├── Dockerfile                # Builds from GitHub; no local clone needed
-│   └── docker-compose.yml
-├── Pipeline/
-│   ├── config.py                 # Drive paths, polling intervals, job schema
-│   ├── drive_bridge.py           # Google Drive API v3 wrapper (upload / download / poll)
-│   ├── colab_job_watcher.py      # Main Colab entry point — dispatches ASR + Podcast jobs
-│   ├── audio_processor.py        # Silero VAD, normalization, chunking
-│   ├── asr_pipeline.py           # Per-chunk ASR + confidence filtering
-│   ├── models_registry.py        # 6 ASR model loaders + AVAILABLE_MODELS dict
-│   ├── diarize_transcript.py     # pyannote speaker diarization
-│   ├── llm_integration.py        # AccumulatedTranscript + Ticker Window
-│   ├── topic_extraction.py       # Topic extraction called by Ticker Window
-│   ├── transcript_normalizer.py  # LLM-based proper noun correction
-│   ├── summary_generator.py      # Pass-2: chapters + 3-level summaries + Q&A backend
-│   ├── podcast_pipeline.py       # Script generation + TTS synthesis + MP3 concat
-│   └── notebook.ipynb            # Colab notebook (run cells 1–4)
-├── Benchmarks/
-│   ├── evaluate_real_pipeline.py
-│   ├── benchmark_all.py
-│   └── benchmark_{canary,parakeet,normalize,no_vad,lang_lock}.py
-├── Samples/
-│   └── sample_podcasts/          # Test audio files
-└── Results/                      # Pipeline output files (local runs)
+```mermaid
+flowchart LR
+    UI["Streamlit app<br/>App/streamlit_app.py"] -- "audio + job.json" --> IN[("Google Drive<br/>ece22073/input/")]
+    IN -- "polled every 10 s" --> W["Colab GPU worker<br/>colab_job_watcher.py"]
+    W --> VAD["Silero VAD chunking<br/>audio_processor.py"]
+    VAD --> ASR["ASR: faster-whisper turbo<br/>asr_pipeline.py"]
+    ASR --> DIA["pyannote diarization<br/>speaker-diarization-3.1"]
+    DIA --> LLM["LLM post-processing<br/>llm_integration.py<br/>transcript_normalizer.py<br/>summary_generator.py"]
+    LLM --> OUT[("Google Drive<br/>ece22073/output/{job_id}/")]
+    W -. "optional extra models" .-> REG["models_registry.py<br/>6 ASR backends"]
+    REG -.-> OUT
+    OUT -- "polled every 15 s" --> UI
 ```
 
----
+The Streamlit app only needs UI dependencies (no PyTorch). It uploads the audio and a `job.json` to a Drive folder and polls `status.json` for progress. A Colab notebook (`Pipeline/notebook.ipynb`) installs the ML stack, mounts Drive and runs `colab_job_watcher.main_loop()`, which picks up new jobs, runs the pipeline and writes results back. The watcher stops itself after 5 minutes without jobs. A job that has not updated its status for 10 minutes is shown as stalled.
 
-## Performance
+## What the pipeline does
 
-Benchmarked on a T4 GPU. Three models, two audio conditions:
+1. **Audio preparation** (`audio_processor.py`): loads any format via pydub/ffmpeg, normalizes loudness to -20 dBFS, resamples to 16 kHz mono, then uses Silero VAD to cut 25-30 s chunks at pauses of at least 0.5 s.
+2. **Transcription** (`asr_pipeline.py`): faster-whisper `turbo` (float16 on CUDA, int8 on CPU) with language detection on each chunk. Each segment gets a confidence of `exp(avg_logprob)`; segments below 0.40 confidence or above 0.80 no-speech probability are marked unreliable.
+3. **Speaker diarization**: `pyannote/speaker-diarization-3.1` runs on each speech chunk, and Whisper segments are assigned to speakers by time overlap.
+4. **Live entity extraction** (`llm_integration.py`): every 120 s of transcribed audio, an LLM call is scheduled with `asyncio.create_task()` so it runs while ASR continues. Each call returns persons, organizations, keywords, main ideas and a one-sentence summary for that window.
+5. **Transcript normalization** (`transcript_normalizer.py`): an LLM pass fixes proper nouns that ASR misspells across languages. The result is rejected if its length differs from the input by more than 15%, so the original transcript is kept when the model rewrites too much.
+6. **Summaries** (`summary_generator.py`): four LLM calls run concurrently with `asyncio.gather()`: chapters with start times, TL;DR, executive summary and a structured deep dive (bullet points, takeaways, action items). The same module answers chat questions against the transcript.
+7. **Model comparison** (`models_registry.py`): optionally re-transcribes the file with other ASR models so their output can be compared in the UI. The six registered backends are Whisper large-v3-turbo and Whisper large-v3 (faster-whisper), NVIDIA Parakeet TDT 0.6B v3 (Transformers), NVIDIA Canary 1B v2 and a NeMo Conformer-Transducer (NeMo), and Qwen2-Audio-7B-Instruct (Transformers). Extra models run one after another, and each one frees GPU memory before the next loads.
+8. **Podcast generation** (`podcast_pipeline.py`, optional): an LLM writes a two-speaker script from the summary and a TTS model (Kokoro, Dia-1.6B, Bark, XTTS-v2 or F5-TTS) reads it out to an MP3.
 
-| Model | WER — 3 min clean | WER — 10 min noisy (TED) | ROUGE-L — clean | ROUGE-L — noisy |
-|-------|:-----------------:|:------------------------:|:---------------:|:---------------:|
-| Whisper Turbo (809 M) | **4.5%** | **6.4%** (+1.9 pp) | **97.0%** | **95.8%** |
-| Whisper Large v3 (1550 M) | 7.2% | 16.6% (+9.4 pp) | 95.6% | 90.3% |
-| Parakeet TDT 0.6B v3 | 6.7% | 12.8% (+6.1 pp) | 96.0% | 91.2% |
+The Streamlit app has five pages: Upload, Results (transcript, entities, chapters, summaries, chat), Accuracy (WER, CER, ROUGE and BLEU against a reference transcript you upload, via `App/comparison_metrics.py`), Podcast and History.
 
-- **Throughput:** 782 s audio processed in 578 s → **6× real-time** (target was ≤ 5×)
-- **Summary quality:** ROUGE-1 = 0.40 (spec met); Topic Recall 0.42–0.50
-- **Memory footprint:** 1.25–1.93 GB after int8 quantisation + per-chunk audio release
-- **VAD chunk size tradeoff:** 30 s chunks → 6× RT, WER 8%; 10 s chunks → 7× RT, WER 6% (default: 30 s)
+## Evaluation
 
-> **Recommended default: Whisper Turbo** — lowest WER in both conditions, least noise degradation (+1.9 pp vs +9.4 pp for Large v3). Speaker Diarization (pyannote) adds ~5–6 s overhead per chunk, consuming ~25% of total wall time.
+The `Benchmarks/` folder contains the scripts used to measure the pipeline:
 
----
+| Script | What it measures |
+|---|---|
+| `evaluate_real_pipeline.py` | WER (jiwer), summary ROUGE-1, topic recall and detected languages for the last pipeline run in `Results/`, against a `*_gt.json` ground-truth file |
+| `benchmark_all.py` | runs Whisper turbo, Whisper large-v3, Parakeet and Canary on the same clip and compares them |
+| `benchmark_parakeet.py`, `benchmark_canary.py` | the same for the NVIDIA models |
+| `benchmark_no_vad.py` | plain Whisper on the whole file without VAD chunking |
+| `benchmark_lang_lock.py` | forcing the detected language vs. auto-detection per chunk |
+| `benchmark_normalize.py` | four transcript normalization variants and their effect on entity extraction, topic recall and summaries |
 
-## Audio processing details
+The test audio and ground-truth files are not in the repository, and neither are the result files, so there is no benchmark table here. To get numbers, place an audio file and a matching `<name>_gt.json` in `Samples/sample_podcasts/`, run the pipeline on it, then run the evaluation script (see below).
 
-`audio_processor.py` prepares every file the same way before ASR:
+## Running it
 
-| Step | Value |
-|------|-------|
-| Loudness normalization | −20 dBFS |
-| Sample rate | 16 kHz mono |
-| VAD model | Silero VAD v5 — stateful RNN, 512-sample frames |
-| Chunk target | 25–30 s of continuous speech |
-| Silence threshold | ≥ 0.5 s gap to cut; gaps < 0.3 s discarded |
-| Confidence filtering | Chunks below threshold are discarded |
+### Requirements
 
----
+- Python 3.11
+- A Google Cloud project with the Drive API enabled and an OAuth 2.0 Desktop client (see [GOOGLE_CREDENTIALS_SETUP.md](GOOGLE_CREDENTIALS_SETUP.md))
+- An OpenAI-compatible API key for the LLM steps
+- A Hugging Face token with access to the gated `pyannote/speaker-diarization-3.1` model
+- For the worker: a CUDA GPU. It was developed on a Colab T4. Parakeet, Canary and the NeMo model need CUDA.
 
-## LLM integration — Ticker Window
+Environment variables:
 
-`llm_integration.py` accumulates transcript chunks. Every 120 s of high-confidence speech, `AccumulatedTranscript` fires **four concurrent async LLM calls** via `asyncio.gather()`:
+| Variable | Used for |
+|---|---|
+| `OPENAI_API_KEY` | all LLM calls |
+| `HF_TOKEN` | pyannote and other gated Hugging Face models |
+| `LLM_MODEL`, `LLM_BASE_URL` | optional: a different model or an OpenAI-compatible local server |
 
-1. **Topic Extraction** (`topic_extraction.py`) — sliding ticker windows over segments
-2. **Entity Recognition** — persons, organizations, keywords with deduplication
-3. **Three-level Summarization** — TL;DR · Executive Summary · Deep Dive (JSON)
-4. **Chapter Detection** — YouTube-style `{title, start_sec}` per topic group
+### 1. GPU worker (Colab)
 
-**Transcript Normalization** (Pass-1.5): `transcript_normalizer.py` corrects cross-language proper nouns (e.g., *Ιαν Λε Κων* → *Yann LeCun*) using a strict LLM prompt. Anti-hallucination guard: if the output length ratio falls outside `0.85–1.15` or more than 10% of timestamps are lost, the change is rejected and the original is kept.
+1. Open `Pipeline/notebook.ipynb` in Colab and pick a T4 GPU runtime.
+2. Add `OPENAI_API_KEY` and `HF_TOKEN` in the Colab Secrets panel.
+3. Set the flags in the first cell (`INSTALL_PODCAST_DEPS`, `INSTALL_NEMO`) and run the cells in order. The last setup cell mounts Drive and starts the watcher.
 
-**Pass-2** (`summary_generator.py`) runs after all chunks complete, consuming the accumulated ticker results to produce the final `summary_outputs.json`:
+The worker and the Streamlit app must use the same Google account, because both read and write the same `ece22073/` Drive folder.
 
-```json
-{
-  "chapters": [{"index": 1, "title": "...", "start_sec": 0.0, "end_sec": 120.0, "summary": "..."}],
-  "entities": {"persons": [], "organizations": [], "keywords": []},
-  "summaries": {
-    "tldr": "...",
-    "executive": "...",
-    "deep_dive": {"overview": "...", "bullet_points": [], "key_takeaways": [], "action_items": []}
-  },
-  "qa_logs": []
-}
-```
-
----
-
-## Streamlit pages
-
-| Page | What it does |
-|------|-------------|
-| **📤 Upload & Transcribe** | Drop `.wav`/`.mp3`/`.m4a`, choose ASR model(s), submit job — progress bar polls Drive every 15 s |
-| **📊 Results** | Per-model transcript tabs · Entities panel · YouTube Chapters with timestamps · TL;DR / Executive / Deep Dive summaries · Chat Q&A backed by `query_transcript()` |
-| **🎧 Podcast Studio** | Configure tone (casual / academic / debate / interview), length, and TTS model per speaker — generates two-speaker MP3 |
-| **🕘 History** | Reload and inspect any past job from the Drive output folder |
-
----
-
-## Local setup — Streamlit UI
-
-### Prerequisites
-
-- Python 3.11+
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (recommended)
-- Google Cloud project with Drive API enabled and an OAuth 2.0 Desktop client
-- `OPENAI_API_KEY`
-
-### Option A — Docker (recommended)
-
-The image builds **directly from GitHub** — no local clone required:
+### 2. Streamlit app (local)
 
 ```bash
-# Create a working directory anywhere on your machine
-mkdir ece22073 && cd ece22073
-
-# Download only the two files you need
-curl -O https://raw.githubusercontent.com/victoras136/asr-notebook/main/App/docker-compose.yml
-curl -O https://raw.githubusercontent.com/victoras136/asr-notebook/main/App/.env.example
-
-# Add your credentials
-cp .env.example .env           # then edit .env → paste OPENAI_API_KEY
-cp /path/to/credentials.json . # OAuth client downloaded from Google Cloud Console
-touch token.json               # placeholder — overwritten on first login
-
-# Start
-docker compose up -d
-```
-
-Streamlit opens at [http://localhost:8501](http://localhost:8501).
-
-To redeploy after a code update: `docker compose up -d --build`
-
-### Option B — Native Python
-
-```bash
-git clone https://github.com/victoras136/asr-notebook.git
+git clone https://github.com/victorpolitakis/asr-notebook.git
 cd asr-notebook
-
-# System deps (macOS)
-brew install ffmpeg espeak-ng
-
 pip install -r App/requirements.txt
-
-# Place App/credentials.json (OAuth 2.0 Desktop client from Google Cloud Console)
-
-cd App
-streamlit run streamlit_app.py
+cp App/.env.example App/.env          # then set OPENAI_API_KEY
+cp /path/to/your/credentials.json App/
+cd App && streamlit run streamlit_app.py
 ```
 
-### First OAuth flow
+On first launch, connect Google Drive from the sidebar. The OAuth token is cached in `App/token.json`. There is also a `Dockerfile` and `docker-compose.yml` in `App/` that run the same UI in a container.
 
-On first launch, click **🔗 Connect Google Drive** in the sidebar. A browser tab opens — approve the consent screen. A `token.json` is written to `App/`. All subsequent launches use the cached token.
+### Running the pipeline without Drive
 
----
-
-## Colab setup — GPU backend
-
-The Colab notebook handles all heavy compute: ASR, diarization, LLM calls, TTS.
-
-1. Open: [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/victoras136/asr-notebook/blob/main/Pipeline/notebook.ipynb)
-2. Add **Colab Secrets** (key icon in the left panel):
-
-   | Secret | Purpose |
-   |--------|---------|
-   | `GITHUB_TOKEN` | GitHub PAT with `repo:read` scope — clones the repo |
-   | `HF_TOKEN` | HuggingFace token — required for pyannote (gated model) and Qwen |
-   | `OPENAI_API_KEY` | LLM calls (normalization, NER, summaries, podcast script) |
-
-3. Run cells **1 → 4** in order: clone → install deps → Google Drive auth → start watcher
-4. Cell 4 (`colab_job_watcher.py`) loops every 10 s and auto-stops after 5 min of idle to preserve Colab runtime
-
-The watcher auto-processes any `.wav`, `.mp3`, or `.m4a` file that appears in `ece22073/input/`.
-
-### Job state machine
-
-```
-uploading → asr → normalization → summary → [podcast_script → podcast_tts] → done
-                                                                            ↘ error / stalled
-```
-
-A job is `stalled` if no status update arrives within 10 minutes (configurable via `STALL_TIMEOUT_SEC` in `config.py`). The Streamlit app can resume polling from Drive state even after a Colab disconnect.
-
----
-
-## Google Drive folder structure
-
-Created automatically on first run:
-
-```
-ece22073/
-├── input/
-│   ├── {job_id}/
-│   │   ├── job.json          ← model selection, language hint, job config
-│   │   └── audio.{ext}       ← uploaded audio file
-│   ├── podcast_jobs/
-│   │   └── {job_id}.json     ← 2-speaker podcast config
-│   └── processed/            ← completed ASR jobs moved here
-├── output/
-│   ├── {job_id}/
-│   │   ├── status.json                ← live progress + stage
-│   │   ├── transcript.json            ← diarized transcript (primary model)
-│   │   ├── summary_outputs.json       ← chapters + entities + summaries + Q&A logs
-│   │   └── {model}_transcript.json   ← per-model transcript (multi-model jobs)
-│   └── podcasts/
-│       └── {podcast_id}.mp3
-└── models/                   ← Drive-cached model weights (Kokoro, F5-TTS)
-```
-
----
-
-## Configuration
-
-All constants live in `Pipeline/config.py` and are imported by every module — nothing is hardcoded elsewhere.
-
-| Variable | Default | Where set | Purpose |
-|----------|---------|-----------|---------|
-| `OPENAI_API_KEY` | — | `.env` | All LLM calls |
-| `HF_TOKEN` | — | `.env` / Colab Secret | pyannote + Qwen (gated models) |
-| `LLM_MODEL` | `gpt-4o-mini` | `config.py` | NER, summaries, normalization, podcast script |
-| `LLM_BASE_URL` | `None` (OpenAI) | `config.py` | Override for local LM Studio / Ollama |
-| `POLL_INTERVAL_SEC` | `10` | `config.py` | Colab watcher loop |
-| `LOCAL_POLL_INTERVAL_SEC` | `15` | `config.py` | Streamlit Drive refresh |
-| `STALL_TIMEOUT_SEC` | `600` | `config.py` | Mark job stalled after N seconds of no update |
-| `MIN_CHUNK_SEC` | `25` | `audio_processor.py` | VAD chunk target floor |
-| `MAX_CHUNK_SEC` | `30` | `audio_processor.py` | VAD chunk hard ceiling |
-
----
-
-## ASR models
-
-Registered in `Pipeline/models_registry.py`. All unload themselves and clear CUDA/MPS cache after inference.
-
-| Key | Model | Backend | Languages | Params |
-|-----|-------|---------|-----------|--------|
-| `whisper-turbo` | `openai/whisper-large-v3-turbo` | faster-whisper · CTranslate2 int8 | multilingual | 809 M |
-| `whisper-large-v3` | `openai/whisper-large-v3` | faster-whisper · CTranslate2 int8 | multilingual | 1550 M |
-| `parakeet` | `nvidia/parakeet-tdt-0.6b-v3` | Transformers · AutoModelForTDT | en-only | 600 M |
-| `canary` | `nvidia/canary-1b-v2` | NeMo ASRModel | multilingual | 1 B |
-| `nemotron` | `nvidia/stt_en_conformer_transducer_large_nemotron` | NeMo ASRModel | en-only | — |
-| `qwen` | `Qwen/Qwen2-Audio-7B-Instruct` | Transformers · Qwen2Audio | multilingual | 7 B |
-
-Canary and Qwen require `HF_TOKEN`. Nemotron, Canary, and Parakeet require CUDA.
-
----
-
-## TTS models (Podcast Studio)
-
-Registered in `Pipeline/podcast_pipeline.py`. All models are loaded lazily; only the selected model is loaded per session.
-
-| Model | Size | Multi-speaker | Drive cache | Notes |
-|-------|------|:-------------:|:-----------:|-------|
-| Kokoro-82M | ~2 GB | ✅ (via style tensor) | ✅ | Fastest; RTF < 0.1 on T4 |
-| Dia-1.6B | ~10 GB | ✅ (native) | ❌ (re-downloads) | Highest quality 2-speaker |
-| Bark | ~8 GB | ✅ (via voice presets) | ❌ (re-downloads) | Expressive, slower |
-| XTTS-v2 | — | ✅ | ❌ | Coqui TTS |
-| F5-TTS | ~4 GB | ✅ | ✅ | Flow-matching TTS |
-
-Podcast pipeline: GPT-4o-mini generates a two-speaker script → each line synthesized with the chosen TTS model → segments concatenated with 300 ms silence between turns → exported as 128 kbps MP3.
-
----
-
-## Switching Google accounts
-
-**Colab:** Runtime → *Disconnect and delete runtime* → re-run all cells → pick the new account in the auth browser prompt.
-
-**Streamlit:**
-1. Replace `App/credentials.json` with the new account's OAuth client *(see [GOOGLE_CREDENTIALS_SETUP.md](GOOGLE_CREDENTIALS_SETUP.md))*
-2. Delete `App/token.json` (holds the cached token for the old account)
-3. Restart Streamlit → sidebar → **🔗 Connect Google Drive** → sign in with the new account
-
-> Both Colab and Streamlit **must use the same Google account**. If they differ, audio uploads land in one Drive and the Colab watcher polls a different one.
-
----
-
-## Running the pipeline locally
+With the ML dependencies from `App/requirements_colab.txt` installed:
 
 ```bash
-# Full pipeline on a local audio file
-python3 -c "
-import sys; sys.path.insert(0, 'Pipeline')
-from run_pipeline import run_pipeline
-run_pipeline('Samples/sample_podcasts/bilingual_long.wav')
-"
+python Pipeline/run_pipeline.py path/to/audio.mp3      # writes to Results/
+python Benchmarks/evaluate_real_pipeline.py            # needs Samples/sample_podcasts/<name>_gt.json
 ```
 
-### Evaluation
+## Repository structure
 
-```bash
-# WER + ROUGE against ground truth
-python3 -c "
-import sys; sys.path.insert(0, 'Benchmarks'); sys.path.insert(0, 'Pipeline')
-from evaluate_real_pipeline import run_real_evaluation
-run_real_evaluation()
-"
-
-# Run all benchmarks
-python3 -c "
-import sys; sys.path.insert(0, 'Benchmarks'); sys.path.insert(0, 'Pipeline')
-import benchmark_all
-"
 ```
+App/
+  streamlit_app.py         UI (single file)
+  comparison_metrics.py    WER / CER / ROUGE / BLEU for the Accuracy page
+  requirements.txt         UI-only dependencies
+  requirements_colab.txt   ML dependencies for the worker
+  Dockerfile, docker-compose.yml
+Pipeline/
+  notebook.ipynb           Colab entry point
+  colab_job_watcher.py     polls Drive and dispatches ASR and podcast jobs
+  drive_bridge.py          Google Drive API v3 wrapper
+  config.py                Drive paths, polling intervals, job states
+  run_pipeline.py          end-to-end pipeline for one file
+  audio_processor.py       loading, loudness normalization, Silero VAD chunking
+  asr_pipeline.py          faster-whisper transcription and pyannote diarization
+  models_registry.py       the six ASR backends
+  llm_integration.py       transcript accumulator and periodic LLM extraction
+  transcript_normalizer.py LLM proper-noun correction
+  topic_extraction.py      entity registry built from the extraction windows
+  summary_generator.py     chapters, summaries, chat Q&A
+  diarize_transcript.py, strip_newlines.py   output formatting for evaluation
+  podcast_pipeline.py      script generation and TTS
+Benchmarks/                evaluation and benchmark scripts
+```
+
+## Limitations
+
+- Google Drive as a queue is simple but slow: job pickup and status updates depend on 10-15 s polling, and Colab sessions disconnect, so this is not meant for more than one user.
+- The main pipeline always uses Whisper turbo with diarization. The other ASR models only produce a plain transcript of the whole file for comparison. They do not use the VAD chunking or diarization.
+- Diarization runs per chunk, so speaker labels are not guaranteed to stay consistent across chunks.
+- All summarization and entity extraction depends on an external LLM API, so results and cost depend on the model used.
+- Sample audio, ground-truth transcripts and benchmark results are not included (see Evaluation).
+
+## Credits
+
+Course project for ECE22073, University of the Peloponnese, Spring 2026. Supervisor: Panagiotis Zervas. Written by Victor Politakis.
