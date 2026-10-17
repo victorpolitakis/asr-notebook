@@ -1,13 +1,31 @@
+# Secrets and local credentials
+.env
 credentials.json
 token.json
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Audio and generated outputs
 *.wav
 *.mp3
-__pycache__/
-.env
+*.m4a
+*.flac
+Results/
+Samples/
+
+# OS / editor
 .DS_Store
-Politakis/results/*
-!Politakis/results/.gitkeep
-Politakis/credentials.json
-Politakis/token.json
-nul
+.idea/
+.vscode/
 *.tmp.*
